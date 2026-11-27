@@ -1,0 +1,112 @@
+/* Design tokens for Real Journey Time Netherlands.
+
+   Rules:
+   1. Every colour, size, space, radius, shadow and duration in the site's CSS and JS comes from here.
+   2. Colour is data. Controls and text are ink. Blue is public transport, green is the bike, red is late.
+   3. Dark mode follows the system setting. There is no switch on the page. */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- Type: one family, six sizes, three weights ---- */
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --weight-regular: 400;
+  --weight-strong: 600;
+  --weight-hero: 700;
+  --text-hero: var(--weight-hero) 2.75rem/1.05 var(--font);       /* 44 px. The one figure that answers the question. */
+  --text-title: var(--weight-strong) 1.375rem/1.27 var(--font);   /* 22 px. View titles, times in rows, key figures. */
+  --text-body: var(--weight-regular) 1.0625rem/1.41 var(--font);  /* 17 px. Sentences, fields. */
+  --text-sub: var(--weight-regular) 0.9375rem/1.33 var(--font);   /* 15 px. Controls, row titles, table cells. */
+  --text-caption: var(--weight-regular) 0.8125rem/1.38 var(--font); /* 13 px. Second lines, notes, legends. */
+  --text-micro: var(--weight-regular) 0.6875rem/1.2 var(--font);  /* 11 px. Chart ticks only. */
+
+  /* ---- Space: a 4 px grid ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --gutter: var(--space-4);    /* page edge; 24 px from 900 px wide */
+  --panel: 420px;              /* the left column on a laptop */
+  --page: 1320px;              /* widest the page grows */
+  --tap: 44px;                 /* smallest thing a finger must hit */
+
+  /* ---- Shape ---- */
+  --radius-s: 6px;             /* badges, chart tooltips */
+  --radius-m: 10px;            /* fields, buttons, segmented controls */
+  --radius-l: 16px;            /* cards, maps */
+  --hairline: 1px;
+
+  /* ---- Motion: only to show what changed ---- */
+  --dur-fast: 120ms;           /* hover, press */
+  --dur: 220ms;                /* a row opening, a list appearing */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- Layers ---- */
+  --z-map-ui: 800;             /* legends on a map */
+  --z-pop: 1100;               /* suggestion lists and tooltips; above Leaflet's panes */
+
+  /* ---- Colour: surfaces and ink (light) ---- */
+  --bg: #F1F0EB;               /* the page */
+  --surface: #FFFFFF;          /* cards */
+  --surface-2: #EFEEE8;        /* segmented track, chips, buttons */
+  --surface-raised: #FFFFFF;   /* the selected segment, pop-ups */
+  --separator: #E3E1D9;        /* lines between rows; chart grid */
+  --hover: rgb(0 0 0 / 0.05);  /* laid over any surface under the pointer */
+  --text: #1B1B19;             /* 17:1 on a card */
+  --text-2: #5C5A53;           /* second lines, labels: 6.9:1 on a card */
+  --focus: #1B1B19;            /* focus ring */
+
+  /* ---- Colour: data ---- */
+  --pt: #1D5FC4;               /* public transport as it really ran: the Real line, the route, the reach area */
+  --pt-wash: rgb(29 95 196 / 0.14);   /* one dot per journey on a chart */
+  --pt-area: rgb(29 95 196 / 0.50);   /* reach area on a map */
+  --bike: #1B7A3D;             /* the bike: its line, its route, its numbers */
+  --bike-area: rgb(27 122 61 / 0.30);
+  --late: #C0341D;             /* a late day, a warning, an error */
+  --timetable: var(--text-2);  /* the timetable is the reference, so it is ink: a dashed line */
+  --dot: #8D8B85;              /* a day that arrived on time */
+
+  /* ---- Elevation: two levels. Cards are flat; only things that float get a shadow. ---- */
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.12), 0 0 0 0.5px rgb(0 0 0 / 0.08);
+  --shadow-pop: 0 10px 30px rgb(0 0 0 / 0.18), 0 0 0 1px rgb(0 0 0 / 0.06);
+
+  /* ---- Map tiles: grey, so the routes carry the colour ---- */
+  --tiles: grayscale(1) contrast(0.9) brightness(1.06);
+}
+
+@media (min-width: 900px) {
+  :root { --gutter: var(--space-5); }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111110;
+    --surface: #1C1C1A;
+    --surface-2: #2A2A27;
+    --surface-raised: #3A3A36;
+    --separator: #343431;
+    --hover: rgb(255 255 255 / 0.08);
+    --text: #F2F1EC;           /* 15:1 on a card */
+    --text-2: #A9A69C;         /* 7:1 on a card */
+    --focus: #F2F1EC;
+
+    --pt: #6FA8FF;
+    --pt-wash: rgb(111 168 255 / 0.20);
+    --pt-area: rgb(111 168 255 / 0.50);
+    --bike: #5CC983;
+    --bike-area: rgb(92 201 131 / 0.32);
+    --late: #FF7B63;
+    --dot: #7C7A74;
+
+    --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.5), 0 0 0 0.5px rgb(255 255 255 / 0.08);
+    --shadow-pop: 0 10px 30px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.10);
+    --tiles: grayscale(1) invert(1) contrast(0.82) brightness(0.92);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur: 0ms; }
+}

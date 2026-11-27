@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Real Journey Time Netherlands</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="?">Real Journey Time<span>Netherlands</span></a>
+  <nav class="tabs" aria-label="Views">
+    <a class="tab" href="?" data-view="plan">Plan</a>
+    <a class="tab" href="?view=journeys" data-view="journeys">Lines</a>
+    <a class="tab" href="?view=reach" data-view="reach">How far</a>
+    <a class="tab" href="?view=history" data-view="history">History</a>
+    <a class="tab" href="?view=bike" data-view="bike">Bike</a>
+  </nav>
+</header>
+
+<main>
+  <section class="view" id="plan" hidden>
+    <div class="panel">
+      <h1 class="title" id="plan-title">When should you leave?</h1>
+      <form class="form" id="plan-form" autocomplete="off">
+        <div class="place">
+          <label class="field field--swap"><span class="field__label">From</span>
+            <input class="field__input" id="plan-from" type="text" inputmode="search" enterkeyhint="search" spellcheck="false" autocorrect="off"
+                   placeholder="Address, stop or station" role="combobox" aria-expanded="false" aria-controls="plan-from-list" aria-autocomplete="list">
+            <button type="button" class="field__clear" aria-label="Clear From"><i data-glyph="clear"></i></button></label>
+          <div class="suggest" id="plan-from-list" role="listbox" hidden></div>
+          <p class="field-error" id="plan-from-error" hidden></p>
+        </div>
+        <button type="button" class="swap" id="plan-swap" aria-label="Swap From and To"><i data-glyph="swap"></i></button>
+        <div class="place">
+          <label class="field field--swap"><span class="field__label">To</span>
+            <input class="field__input" id="plan-to" type="text" inputmode="search" enterkeyhint="search" spellcheck="false" autocorrect="off"
+                   placeholder="Address, stop or station" role="combobox" aria-expanded="false" aria-controls="plan-to-list" aria-autocomplete="list">
+            <button type="button" class="field__clear" aria-label="Clear To"><i data-glyph="clear"></i></button></label>
+          <div class="suggest" id="plan-to-list" role="listbox" hidden></div>
+          <p class="field-error" id="plan-to-error" hidden></p>
+        </div>
+        <div class="form__row">
+          <div class="segmented" role="group" aria-label="Arrive by or leave at">
+            <button type="button" data-by="arrive" aria-pressed="true">Arrive by</button>
+            <button type="button" data-by="leave" aria-pressed="false">Leave at</button>
+          </div>
+        </div>
+        <div class="cells">
+          <label class="cell"><input type="time" step="300" id="plan-time" value="09:00" aria-label="Time"></label>
+          <label class="cell cell--menu"><select id="plan-days" aria-label="Days">
+            <option value="weekdays">Weekdays</option><option value="saturday">Saturdays</option><option value="sunday">Sundays</option></select></label>
+        </div>
+      </form>
+      <div class="panel" id="plan-start"></div>
+      <section class="card" id="plan-answer" aria-live="polite" hidden></section>
+    </div>
+    <div class="stage stage--pinned">
+      <div class="map-wrap">
+        <div class="map map--tall" id="plan-map"></div>
+        <ul class="key map-key" id="plan-map-key" hidden></ul>
+      </div>
+      <p class="note note--out">Choose a point on the map to set From or To.</p>
+    </div>
+  </section>
+
+  <section class="view" id="route-views" hidden>
+    <div class="panel">
+      <h1 class="title" id="route-title">How long does it really take?</h1>
+      <form class="form" id="route-form" autocomplete="off">
+        <div class="place">
+          <label class="field"><span class="field__label">Line</span>
+            <input class="field__input" id="route-search" type="text" inputmode="search" enterkeyhint="search" spellcheck="false" autocorrect="off"
+                   placeholder="Line or place, like tram 4 or Almere" role="combobox" aria-expanded="false" aria-controls="route-results" aria-autocomplete="list">
+            <button type="button" class="field__clear" aria-label="Clear Line"><i data-glyph="clear"></i></button></label>
+          <div class="suggest" id="route-results" role="listbox" hidden></div>
+        </div>
+        <label class="field field--menu field--swap"><span class="field__label">From</span>
+          <select class="field__input" id="from-stop"></select></label>
+        <button type="button" class="swap" id="reverse" aria-label="Swap From and To"><i data-glyph="swap"></i></button>
+        <div>
+          <label class="field field--menu field--swap"><span class="field__label">To</span>
+            <select class="field__input" id="to-stop"></select></label>
+          <p class="field-error" id="route-error" hidden></p>
+        </div>
+        <label class="field field--menu" id="days-row"><span class="field__label">Days</span>
+          <select class="field__input" id="days">
+            <option value="weekdays">Weekdays</option><option value="saturday">Saturdays</option><option value="sunday">Sundays</option></select></label>
+        <div id="dates-row">
+          <button type="button" class="field field--menu field--button" id="dates-button" aria-expanded="false" aria-controls="date-panel">
+            <span class="field__label">Dates</span><span class="field__input" id="date-summary"></span></button>
+          <div class="dates" id="date-panel" hidden>
+            <label>From <input type="date" id="start-date"></label>
+            <label>To <input type="date" id="end-date"></label>
+            <button type="button" class="button" id="apply-dates">Apply</button>
+          </div>
+        </div>
+      </form>
+      <section class="card" id="lines-answer" aria-live="polite"></section>
+      <section class="card" id="history-answer" aria-live="polite" hidden></section>
+    </div>
+
+    <div class="stage" id="lines-stage">
+      <section class="card" id="chart-card">
+        <h2 class="heading">Through the day</h2>
+        <ul class="key" id="chart-key"></ul>
+        <div class="chart" id="chart-area">
+          <canvas id="chart" role="img" aria-label="Journey time through the day"></canvas>
+          <div class="tooltip" id="tooltip" hidden></div>
+        </div>
+        <p class="note" id="chart-note"></p>
+        <div><button type="button" class="button" id="save-chart"><i data-glyph="save"></i>Save as image</button></div>
+      </section>
+      <div class="map-wrap">
+        <div class="map" id="map"></div>
+        <ul class="key map-key" id="map-key" hidden></ul>
+      </div>
+      <p class="note note--out" id="map-note">Choose a stop on the map for From, then another for To.</p>
+    </div>
+
+    <div class="stage" id="history-stage" hidden>
+      <section class="card">
+        <h2 class="heading">Through the day</h2>
+        <ul class="key" id="history-key"></ul>
+        <div class="chart chart--short" id="history-area">
+          <canvas id="history-chart" role="img" aria-label="Timetabled journey time through the day, one line a year"></canvas>
+        </div>
+        <p class="note">Minutes in the timetable, by arrival time, on the second Tuesday of October each year.</p>
+        <p class="note" id="history-renumbered" hidden></p>
+      </section>
+    </div>
+  </section>
+
+  <section class="view" id="reach" hidden>
+    <div class="panel">
+      <h1 class="title">How far can you get?</h1>
+      <form class="form" id="reach-form" autocomplete="off">
+        <div class="place">
+          <label class="field"><span class="field__label">From</span>
+            <input class="field__input" id="reach-from" type="text" inputmode="search" enterkeyhint="search" spellcheck="false" autocorrect="off"
+                   placeholder="Address, stop or station" role="combobox" aria-expanded="false" aria-controls="reach-from-list" aria-autocomplete="list">
+            <button type="button" class="field__clear" aria-label="Clear From"><i data-glyph="clear"></i></button></label>
+          <div class="suggest" id="reach-from-list" role="listbox" hidden></div>
+        </div>
+        <div>
+          <button type="button" class="action" id="my-location"><i data-glyph="here"></i>Use my location</button>
+          <p class="field-error" id="reach-from-error" hidden></p>
+        </div>
+        <div class="form__row">
+          <div class="segmented" role="group" aria-label="Travel time">
+            <button type="button" data-minutes="30" aria-pressed="true">30 min</button>
+            <button type="button" data-minutes="45" aria-pressed="false">45 min</button>
+            <button type="button" data-minutes="60" aria-pressed="false">60 min</button>
+          </div>
+        </div>
+        <label class="cell cell--menu"><span class="cell__label">Leave at</span><select id="reach-hour" aria-label="Leave at"></select></label>
+      </form>
+      <section class="card" id="reach-answer" aria-live="polite"></section>
+    </div>
+    <div class="stage stage--pinned">
+      <div class="map-wrap">
+        <div class="map map--reach map--tall" id="reach-map"></div>
+        <div class="key map-key">
+          <label><input type="checkbox" id="show-transit" checked><i class="area"></i>Public transport</label>
+          <label><input type="checkbox" id="show-bike" checked><i class="area bike"></i>Bike</label>
+        </div>
+      </div>
+      <p class="note note--out">Choose a point on the map to set From.</p>
+    </div>
+  </section>
+
+  <section class="view" id="bike" hidden>
+    <div class="panel">
+      <h1 class="title">Where is the bike quicker?</h1>
+      <section class="card" id="bike-answer" aria-live="polite"></section>
+    </div>
+    <div class="stage" id="bike-stage">
+      <h2 class="heading">Where the bike saves most on a usual day</h2>
+      <div class="segmented segmented--page segmented--modes" role="group" aria-label="Kind of transport">
+        <button type="button" data-mode="all" aria-pressed="true">All</button>
+        <button type="button" data-mode="train" aria-pressed="false">Train</button>
+        <button type="button" data-mode="metro" aria-pressed="false">Metro</button>
+        <button type="button" data-mode="tram" aria-pressed="false">Tram</button>
+        <button type="button" data-mode="bus" aria-pressed="false">Bus</button>
+      </div>
+      <div class="table-wrap only-wide">
+        <table class="table">
+          <thead><tr><th>From and to</th><th>Line</th><th class="num">Bike</th><th class="num">Usually</th><th class="num">9 days in 10</th>
+            <th class="num">Timetable</th><th class="num">Saved</th><th></th></tr></thead>
+          <tbody id="wins-body"></tbody>
+        </table>
+      </div>
+      <ul class="rows rows--card only-narrow" id="wins-list"></ul>
+      <div><button type="button" class="button" id="bike-more" hidden>Show more</button></div>
+      <p class="note note--out">Weekdays, arriving between 07:00 and 19:00. Choose a trip to see it through the day.</p>
+    </div>
+  </section>
+</main>
+
+<details class="about">
+  <summary>About the data</summary>
+  <div class="about__body">
+    <p>Real Journey Time shows how long Dutch public transport really took on recorded days. It is a Dutch version of
+      Tom Forth's <a href="https://tomforth.co.uk/realjourneytime/">Real Journey Time</a> for buses in England.</p>
+    <h2>What "9 days in 10" means</h2>
+    <p>Leave at the time shown every day and you are on time on 9 days out of 10. If you travel there and back every
+      weekday, that is one late arrival a week.</p>
+    <h2>Where the times come from</h2>
+    <p>Trains: every passenger train between Dutch stations <span id="train-days">for a year</span>, from the
+      <a href="https://www.rijdendetreinen.nl/en/open-data/train-archive">Rijden de Treinen archive</a>. Delays are in
+      whole minutes.</p>
+    <p>Metros, trams and buses: <span id="transit-days">the recorded days</span>, from
+      <a href="https://trein.fwrite.org/">Adriaan van Natijne's archive</a> of the live feeds of Arriva, Connexxion,
+      EBS, GVB, HTM, Keolis, Qbuzz and RET. Journeys after midnight are missing.</p>
+    <h2>How a journey is timed</h2>
+    <p>From the timetabled departure to the moment you arrive. You are at the stop a minute early. If the one you
+      planned to catch is cancelled, or another gets there first, the first arrival counts, wait included.
+      Disruptions with nothing running for 2 hours or more (such as strikes or closures) are left out, and so are
+      journeys that were not recorded.</p>
+    <h2>How Plan chooses</h2>
+    <p>It tries one line, one change, or two changes when the middle ride is a train, on every recorded day. You walk
+      at 4.8 km/h, up to 1 km to a stop or 2 km to a station. A change needs the walk between stops plus a minute,
+      and 3 minutes at a station. If the timetable was different on a day and your departure did not run, that day
+      counts as late.</p>
+    <h2>How the bike is timed</h2>
+    <p>The shortest legal cycle route on <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, without
+      ferries, at the speed you choose. Traffic lights and parking are not counted. Trips over 80 km are not
+      compared. 15 km/h is an everyday bike, 25 km/h an e-bike, and 45 km/h a speed pedelec, which may not use most
+      cycle paths.</p>
+    <h2>How far</h2>
+    <p>You walk to a stop within 1 km, take one ride with no change, then walk. The ride takes as long as it did on 9
+      weekdays in 10 in that hour. People are counted where they live, from Statistics Netherlands'
+      <a href="https://www.cbs.nl/nl-nl/dossier/nederland-regionaal/geografische-data/kaart-van-100-meter-bij-100-meter-met-statistieken">100 m squares</a>
+      for 2024, to the nearest thousand.</p>
+    <h2>History</h2>
+    <p>The timetable on one weekday a year, the second Tuesday of October, from 2019 to 2025.</p>
+    <h2>Your privacy</h2>
+    <p>Plan runs in your browser. What you type in From and To goes to the Dutch government's address search,
+      <a href="https://www.pdok.nl/pdok-locatieserver">PDOK</a>, to find the place. Your location is used only when
+      you ask for it.</p>
+  </div>
+</details>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
