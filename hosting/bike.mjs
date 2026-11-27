@@ -86,7 +86,7 @@ export class Bike {
   }
 
   async preload(keys) {
-    const present = keys.filter(k => this.available.has(k) && !this.tiles.has(k));
+    const present = keys.filter(k => this.available.has(k));
     for (let i = 0; i < present.length; i += 4) await Promise.all(present.slice(i, i + 4).map(k => this.load(k)));
   }
 
@@ -165,8 +165,7 @@ export class Bike {
   }
 
   async route(a, b) {
-    const [start, access] = await this.snap(a);
-    const [end, exit] = await this.snap(b);
+    const [[start, access], [end, exit]] = await Promise.all([this.snap(a), this.snap(b)]);
     if (start === NO_NODE || end === NO_NODE) return {metres: null, path: []};
     const straight = distance(a, b);
     const result = await this.search(start, Math.max(DETOUR * straight, straight + 5000), end);

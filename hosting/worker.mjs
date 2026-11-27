@@ -1,6 +1,7 @@
 import {Bike, BOUNDS} from './bike.mjs';
 import {reach} from './reach.mjs';
 import {chart, plannerLegs} from './timings.mjs';
+import {requestTiming} from './request-timing.mjs';
 
 const ASSETS = /*ASSETS*/ {};
 const RELEASE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -10,6 +11,24 @@ const CACHE = 'private, max-age=300';
 const json = (data, status = 200, cache = 'no-store') =>
   Response.json(data, {status, headers: {'Cache-Control': cache}});
 const missing = () => json({error: 'Not found'}, 404);
+const VISIT_EVENTS = new Set(['start', 'stop', 'click', 'tap', 'input', 'change', 'view', 'place', 'error', 'timing',
+  'map-dragstart', 'map-dragend', 'map-zoomstart', 'map-zoomend', 'map-click', 'reach-origin']);
+
+async function diagnostics(request, url) {
+  if (request.method !== 'POST' || request.headers.get('Origin') !== url.origin) return missing();
+  const length = Number(request.headers.get('Content-Length'));
+  if (!Number.isInteger(length) || length < 1 || length > 8192) return json({error: 'Invalid diagnostic batch size'}, 413);
+  let visit, sequence, events;
+  try { ({visit, sequence, events} = await request.json()); } catch { return json({error: 'Invalid diagnostic batch'}, 400); }
+  const number = value => Number.isInteger(value) && value >= 0 && value <= 2 ** 31 - 1;
+  if (typeof visit !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(visit) ||
+      !number(sequence) || !Array.isArray(events) || !events.length || events.length > 48 ||
+      events.some(row => !Array.isArray(row) || row.length !== 4 || !number(row[0]) ||
+        !VISIT_EVENTS.has(row[1]) || typeof row[2] !== 'string' || !/^[a-z0-9.-]{1,48}$/.test(row[2]) ||
+        (row[3] !== null && !number(row[3])))) return json({error: 'Invalid diagnostic batch'}, 400);
+  console.log(JSON.stringify({event: 'rjt.visit', visit, sequence, events}));
+  return new Response(null, {status: 204, headers: {'Cache-Control': 'no-store'}});
+}
 
 function validPoint(point) {
   const [s, w, n, e] = BOUNDS, [lat, lon] = point;
@@ -29,8 +48,8 @@ function objectPath(pathname) {
   return null;
 }
 
-async function serveObject(request, bucket, key) {
-  const object = await bucket.get(key);
+async function serveObject(request, timing, key) {
+  const object = await timing.read(key, undefined, false);
   if (!object) return missing();
   const headers = {
     'Content-Type': key.endsWith('.json.gz') ? 'application/json; charset=utf-8' : 'application/octet-stream',
@@ -70,43 +89,47 @@ async function upload(request, env, pathname) {
   return new Response(null, {status: 201, headers: {'Cache-Control': 'no-store'}});
 }
 
-async function data(request, env, url, object) {
+async function data(request, env, url, object, timing) {
   if (!env.DATA) return json({error: 'No R2 binding'}, 503);
-  const active = await env.DATA.get('active');
-  const release = active && await active.text();
+  const active = await timing.read('active');
+  const release = active && new TextDecoder().decode(active);
   if (!release || !RELEASE.test(release)) return json({error: 'Journey data has yet to be uploaded'}, 503);
   const prefix = `releases/${release}/`;
   if (object) {
-    const response = await serveObject(request, env.DATA, prefix + object);
+    const response = await serveObject(request, timing, prefix + object);
     if (response.status === 404 && /^public\/planner\/\d+\//.test(object)) {
       return json({stops: [], routes: {}}, 200, CACHE);
     }
     return response;
   }
+  const read = (key, options) => timing.read(prefix + key, options);
   const load = async key => {
-    const object = await env.DATA.get(prefix + key);
-    return object ? new Response(ungzip(object.body)) : null;
+    const body = await read(key);
+    return body && await timing.unzip(body);
   };
-  const loadJson = async key => (await load(key))?.json();
+  const loadJson = async key => {
+    const body = await load(key);
+    return body && JSON.parse(new TextDecoder().decode(body));
+  };
   const loadBinary = async key => {
-    const response = await load(key);
-    if (!response) throw new Error('Missing map data');
-    return response.arrayBuffer();
+    const body = await load(key);
+    if (!body) throw new Error('Missing map data');
+    return body;
   };
+  const calls = {read, unzip: timing.unzip};
   const bike = async () => new Bike((await loadJson('public/bike/index.json.gz')).tiles,
     key => loadBinary(`public/bike/${key}.bin.gz`));
   const q = Object.fromEntries(url.searchParams);
   switch (url.pathname) {
     case '/api/route': {
       if (!q.key || !KEY.test(q.key)) return missing();
-      return serveObject(request, env.DATA, prefix + `route/${q.key}.json.gz`);
+      return serveObject(request, timing, prefix + `route/${q.key}.json.gz`);
     }
     case '/api/journeys': {
       if (!q.route || !KEY.test(q.route) || !q.from || !q.to) return json({error: 'Supply a route and two stops'}, 400);
       if (q.days && !['weekdays', 'saturday', 'sunday'].includes(q.days)) return json({error: 'Invalid day type'}, 400);
       if ([q.start, q.end].some(value => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) return json({error: 'Invalid date'}, 400);
-      const index = await loadJson('public/index.json.gz');
-      const answer = await chart(loadJson, env.DATA, prefix, index, q);
+      const answer = await chart(loadJson, calls, q);
       return answer ? json(answer, 200, CACHE) : missing();
     }
     case '/api/planner-legs': {
@@ -123,7 +146,7 @@ async function data(request, env, url, object) {
         }
         queries.push({route, from, to, lo, hi, days: q.days});
       }
-      return json(await plannerLegs(loadJson, env.DATA, prefix, queries), 200, CACHE);
+      return json(await plannerLegs(loadJson, calls, queries), 200, CACHE);
     }
     case '/api/bike-route': {
       const a = (q.a ?? '').split(',').map(Number), b = (q.b ?? '').split(',').map(Number);
@@ -137,7 +160,7 @@ async function data(request, env, url, object) {
           !(minutes > 0 && minutes <= 60) || !(kmh > 0 && kmh <= 45)) {
         return json({error: 'Choose a valid origin, hour, cycling speed and time budget'}, 400);
       }
-      return json(await reach(loadJson, loadBinary, await bike(), point, hour, minutes, kmh), 200, CACHE);
+      return json(await reach(loadJson, loadBinary, bike(), point, hour, minutes, kmh), 200, CACHE);
     }
     default: return missing();
   }
@@ -145,21 +168,36 @@ async function data(request, env, url, object) {
 
 export default {
   async fetch(request, env) {
+    const timing = requestTiming(env.DATA);
     const url = new URL(request.url);
-    if (url.pathname.startsWith('/__data/')) return upload(request, env, url.pathname);
-    if (!['GET', 'HEAD'].includes(request.method)) return json({error: 'Use GET or HEAD'}, 405);
-    const asset = ASSETS[url.pathname === '/' ? '/index.html' : url.pathname];
-    if (asset) return new Response(request.method === 'HEAD' ? null : decode(asset[1]), {
-      headers: {'Content-Type': asset[0], 'Cache-Control': 'private, max-age=0, must-revalidate'},
-    });
-    if (url.pathname === '/favicon.ico') return new Response(null, {status: 204});
     const object = objectPath(url.pathname);
-    if (!object && !url.pathname.startsWith('/api/')) return missing();
+    const path = url.pathname === '/' ? '/index.html' : url.pathname;
+    const asset = Object.hasOwn(ASSETS, path) ? ASSETS[path] : null;
+    let route = 'unknown', response;
     try {
-      return await data(request, env, url, object);
+      if (path.startsWith('/__data/')) {
+        route = 'upload';
+        response = await upload(request, env, path);
+      } else if (path === '/api/diagnostics') {
+        route = path;
+        response = await diagnostics(request, url);
+      } else if (!['GET', 'HEAD'].includes(request.method)) response = json({error: 'Use GET or HEAD'}, 405);
+      else if (asset) {
+        route = path;
+        response = new Response(request.method === 'HEAD' ? null : decode(asset[1]), {
+          headers: {'Content-Type': asset[0], 'Cache-Control': 'private, max-age=0, must-revalidate'},
+        });
+      } else if (path === '/favicon.ico') {
+        route = path;
+        response = new Response(null, {status: 204});
+      } else if (object || ['/api/route', '/api/journeys', '/api/planner-legs', '/api/bike-route', '/api/reach'].includes(path)) {
+        route = object ? '/data/' + path.split('/')[2] : path;
+        response = await data(request, env, url, object, timing);
+      } else response = missing();
     } catch (error) {
-      console.error('Journey data request failed', url.pathname, String(error.message));
-      return json({error: 'Journey data unavailable'}, 502);
+      console.error('Journey data request failed', route, String(error.message));
+      response = json({error: 'Journey data unavailable'}, 502);
     }
+    return timing.finish(request, route, response);
   },
 };

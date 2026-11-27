@@ -30,7 +30,7 @@ await mkdir(server, {recursive: true});
 await mkdir(join(dist, '.openai'));
 await cp(join(root, '.openai', 'hosting.json'), join(dist, '.openai', 'hosting.json'));
 await cp(join(root, 'site', 'stats.js'), join(server, 'stats.js'));
-for (const file of ['timings.mjs', 'bike.mjs', 'reach.mjs']) {
+for (const file of ['timings.mjs', 'bike.mjs', 'reach.mjs', 'request-timing.mjs']) {
   await cp(join(root, 'hosting', file), join(server, file));
 }
 const source = await readFile(join(root, 'hosting', 'worker.mjs'), 'utf8');

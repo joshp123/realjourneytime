@@ -102,3 +102,13 @@ MacBook), works the same table out from `/data/bike-pairs.json`. The two were co
 **Not measured:** the size of `planner-legs` answers with a full year of buses, trams and metros. Today's 24
 weekdays give 100 to 600 KB of JSON for a city trip; 250 weekdays would be about ten times that before gzip.
 If that is too slow on a phone, the fix is on my side (fewer candidate plans, or a shorter window), not in the format.
+
+## Performance and visit diagnostics
+
+The Network panel's `Server-Timing` header shows Worker elapsed time, elapsed R2 read time with the count and compressed bytes, and decompression time with its output bytes. R2 and decompression can overlap. For streamed files, the header measures up to the response headers and gives the bytes offered by R2. Browser download time is in Resource Timing. Cloudflare's clock advances at I/O boundaries, so the Worker timings can miss synchronous calculation and decompression. The corresponding Worker invocation log reports the actual total CPU time.
+
+In the browser's Performance panel, `rjt.<view>.answer` measures through the first painted answer. `rjt.<view>.complete` includes the chart, table or map overlays the view loads. The basemap tiles can finish separately. `rjt.<view>.error` measures through the error state.
+
+Open `/?debug=1` to record a visit in that browser. Press **Diagnostics on · Stop** or open `/?debug=0` to turn it off. Visit records contain control IDs, input lengths, selection positions, map actions without coordinates, errors and timings. They omit typed text, addresses and IP addresses.
+
+In Sites, use **Get site worker logs** with the project ID from `.openai/hosting.json`, `errors_only: false` and `limit: 100`. Set `since_minutes` to include when the visit happened. List distinct `visit` values from `rjt.visit` records, then read the batches in `sequence` order. Each event is `[milliseconds since navigation, action, control or view, number or null]`. In How far, a `reach-origin` event with source `map` marks a pin move that followed a map click. `rjt.request` records the response timings. Sites controls retention and returns recent logs rather than a complete archive.

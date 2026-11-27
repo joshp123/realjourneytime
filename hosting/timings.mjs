@@ -1,16 +1,15 @@
 import {alternativeKeys, journeyRecords, ride} from './stats.js';
 
-async function column(bucket, path, range) {
+async function column(calls, path, range) {
   if (!range) return null;
   const [offset, length] = range;
-  const object = await bucket.get(path, {range: {offset, length}});
-  if (!object) throw new Error('Missing route calls');
-  return decodeCalls(object.body);
+  const body = await calls.read(path, {range: {offset, length}});
+  if (!body) throw new Error('Missing route calls');
+  return decodeCalls(calls, body);
 }
 
-async function decodeCalls(compressed) {
-  const raw = compressed.pipeThrough(new DecompressionStream('gzip'));
-  return new Int32Array(await new Response(raw).arrayBuffer());
+async function decodeCalls(calls, compressed) {
+  return new Int32Array(await calls.unzip(compressed));
 }
 
 // Columns are ordered by pattern and stop occurrence. Their four time arrays have one entry
@@ -27,13 +26,6 @@ function positions(layout, stop) {
 
 const keep = (date, type, q) => (!q.days || type === q.days) &&
   (!q.start || date >= q.start) && (!q.end || date <= q.end);
-
-export async function readLeg(loadJson, bucket, prefix, key, from, to, q) {
-  const layout = await loadJson(`calls/${key}.json.gz`);
-  if (!layout) throw new Error('Missing route schedule');
-  return readWithLayout(layout, from, to, q, stop =>
-    column(bucket, `${prefix}calls/${key}.bin`, layout.ranges[stop]));
-}
 
 async function readWithLayout(layout, from, to, q, readColumn) {
   const a = layout.stop_ids.indexOf(from), b = layout.stop_ids.indexOf(to);
@@ -69,19 +61,23 @@ async function readWithLayout(layout, from, to, q, readColumn) {
   return result;
 }
 
-export async function chart(loadJson, bucket, prefix, index, q) {
+export async function chart(loadJson, calls, q) {
+  const schedule = key => loadJson(`calls/${key}.json.gz`);
+  const [index, primary] = await Promise.all([loadJson('public/index.json.gz'), schedule(q.route)]);
   const meta = index.routes.find(r => r.key === q.route);
   if (!meta || !meta.stop_ids.includes(q.from) || !meta.stop_ids.includes(q.to)) return null;
   const alternatives = alternativeKeys(index.routes, meta, q.from, q.to);
   const routes = [];
-  // Drain object bodies in small groups to stay under the simultaneous connection limit.
+  // Pipeline route layouts and columns while the request's reader limits open bodies.
   const keys = [meta.key, ...alternatives];
-  for (let i = 0; i < keys.length; i += 3) {
-    const batch = await Promise.all(keys.slice(i, i + 3).map(async key => ({
-      stop_ids: ['from', 'to'],
-      patterns: [[0, 1]],
-      days: await readLeg(loadJson, bucket, prefix, key, q.from, q.to, {...q, days: q.days || 'weekdays'}),
-    })));
+  for (let i = 0; i < keys.length; i += 6) {
+    const batch = await Promise.all(keys.slice(i, i + 6).map(async key => {
+      const layout = key === meta.key ? primary : await schedule(key);
+      if (!layout) throw new Error('Missing route schedule');
+      const readColumn = plannerColumns(calls, `calls/${key}.bin`, layout, new Set([q.from, q.to]));
+      const days = await readWithLayout(layout, q.from, q.to, {...q, days: q.days || 'weekdays'}, readColumn);
+      return {stop_ids: ['from', 'to'], patterns: [[0, 1]], days};
+    }));
     routes.push(...batch);
   }
   const x = journeyRecords(routes[0], 'from', 'to', () => true, routes.slice(1));
@@ -102,7 +98,7 @@ function formatLeg(days) {
   })})).filter(day => day.legs.length);
 }
 
-export async function plannerLegs(loadJson, bucket, prefix, queries) {
+export async function plannerLegs(loadJson, calls, queries) {
   const grouped = new Map();
   queries.forEach((q, i) => {
     if (!grouped.has(q.route)) grouped.set(q.route, []);
@@ -117,12 +113,13 @@ export async function plannerLegs(loadJson, bucket, prefix, queries) {
         for (const [, at] of list) legs[at] = {days: []};
         return;
       }
-      const path = `${prefix}calls/${route}.bin`;
-      const readColumn = plannerColumns(bucket, path, layout, list);
-      for (const [q, at] of list) {
+      const path = `calls/${route}.bin`;
+      const stops = new Set(list.flatMap(([q]) => [q.from, q.to]));
+      const readColumn = plannerColumns(calls, path, layout, stops);
+      await Promise.all(list.map(async ([q, at]) => {
         const days = await readWithLayout(layout, q.from, q.to, q, readColumn);
         legs[at] = {days: formatLeg(days)};
-      }
+      }));
     }));
   }
   return {fields, legs};
@@ -130,9 +127,8 @@ export async function plannerLegs(loadJson, bucket, prefix, queries) {
 
 // Adjacent compressed blocks can share an R2 read. Bound the extra bytes so a
 // query can never pull in a whole busy line just to read two stops far apart.
-function plannerColumns(bucket, path, layout, list) {
+function plannerColumns(calls, path, layout, requested) {
   const columns = new Map(), ranges = [];
-  const requested = new Set(list.flatMap(([q]) => [q.from, q.to]));
   for (let stop = 0; stop < layout.stop_ids.length; stop++) {
     if (!requested.has(layout.stop_ids[stop])) continue;
     const [offset, length] = layout.ranges[stop], end = offset + length;
@@ -150,18 +146,18 @@ function plannerColumns(bucket, path, layout, list) {
     if (decoded.has(stop)) return decoded.get(stop);
     const range = columns.get(stop);
     if (range.stops.length === 1) {
-      decoded.set(stop, column(bucket, path, layout.ranges[stop]));
+      decoded.set(stop, column(calls, path, layout.ranges[stop]));
       return decoded.get(stop);
     }
     if (!bodies.has(range)) {
-      bodies.set(range, bucket.get(path, {range: {offset: range.start, length: range.end - range.start}}).then(object => {
-        if (!object) throw new Error('Missing route calls');
-        return object.arrayBuffer();
+      bodies.set(range, calls.read(path, {range: {offset: range.start, length: range.end - range.start}}).then(body => {
+        if (!body) throw new Error('Missing route calls');
+        return body;
       }));
     }
     const [offset, length] = layout.ranges[stop];
     decoded.set(stop, bodies.get(range).then(body =>
-      decodeCalls(new Blob([new Uint8Array(body, offset - range.start, length)]).stream())));
+      decodeCalls(calls, new Uint8Array(body, offset - range.start, length))));
     return decoded.get(stop);
   };
 }

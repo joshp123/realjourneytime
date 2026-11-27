@@ -130,18 +130,18 @@ async function layer(mask, grid, loadBinary, colour, cached) {
 }
 
 export async function reach(loadJson, loadBinary, bike, point, hour, minutes, kmh) {
-  const grid = new Set((await loadJson('grid/index.json.gz')).tiles);
+  const grid = loadJson('grid/index.json.gz').then(index => new Set(index.tiles));
   const cache = new Map();
   const bikeMask = new Mask();
   const [transitLayer, bikeLayer] = await Promise.all([
-    transit(loadJson, point, hour, minutes).then(mask =>
-      layer(mask, grid, loadBinary, [179, 79, 44], cache)),
-    bike.reach(point, minutes * kmh * 1000 / 60, (lat, lon) => {
+    Promise.all([transit(loadJson, point, hour, minutes), grid]).then(([mask, tiles]) =>
+      layer(mask, tiles, loadBinary, [179, 79, 44], cache)),
+    Promise.all([bike.then(router => router.reach(point, minutes * kmh * 1000 / 60, (lat, lon) => {
       const r = row(lat), c = col(lon);
       bikeMask.set(r, c);
       bikeMask.set(r - 1, c); bikeMask.set(r + 1, c);
       bikeMask.set(r, c - 1); bikeMask.set(r, c + 1);
-    }).then(() => layer(bikeMask, grid, loadBinary, [47, 138, 60], cache)),
+    })), grid]).then(([, tiles]) => layer(bikeMask, tiles, loadBinary, [47, 138, 60], cache)),
   ]);
   return {transit: transitLayer, bike: bikeLayer};
 }

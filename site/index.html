@@ -8,6 +8,13 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="modulepreload" href="stats.js">
+  <link rel="modulepreload" href="ui.js">
+  <link rel="modulepreload" href="plan.js">
+  <link rel="modulepreload" href="planner.js">
+  <link rel="modulepreload" href="plan-data.js">
+  <link rel="modulepreload" href="view-timing.js">
+  <link rel="modulepreload" href="diagnostics.js">
 </head>
 <body>
 <header class="bar">
@@ -243,7 +250,7 @@
       you ask for it.</p>
   </div>
 </details>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

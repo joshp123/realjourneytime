@@ -3,6 +3,8 @@
 import * as data from './plan-data.js';
 import {plan as planTrip, nameOf} from './planner.js';
 import {$, esc, clock, clockUp, duration, dateLabel, glyph, atSpeed, replaceOnType, DAYS} from './ui.js';
+import {timeView} from './view-timing.js';
+import {diagnose} from './diagnostics.js';
 
 // An arrival, or "after 11:00" when it was later than the last departure that was looked at.
 const arrival = (s, p) => s > p.until ? `after ${clock(p.until)}` : clockUp(s);
@@ -21,6 +23,7 @@ const EXAMPLES = [
 
 const trip = {a: null, b: null, by: 'arrive', time: '09:00', days: 'weekdays'};
 let ctx, answer = null, bike = null, chosen = 0, open = false, asked = 0, map, layer, started = false, coverage = null;
+let markPlan;
 
 const get = async url => { const r = await fetch(url); if (!r.ok) throw new Error(`${r.status}`); return r.json(); };
 const store = {
@@ -90,8 +93,9 @@ export function placeField(id, {current, onPlace, onHere}) {
     const item = items[i];
     if (!item) return;
     close(); input.blur(); ok();
+    diagnose('place', id, i);
     if (item.here) return onHere();
-    try { onPlace(await locate(item)); } catch { fail('Place not found. Try a street and town, or a station.'); }
+    try { onPlace(await locate(item)); } catch { diagnose('error', id); fail('Place not found. Try a street and town, or a station.'); }
   };
   // Before anything is typed: My location and the places used lately, whatever the box still shows.
   const refresh = async () => {
@@ -177,14 +181,15 @@ function syncURL() {
 const WORKING = `<p class="answer">Checking every recorded day…<span class="skeleton" style="width: 150px; height: 44px; margin: var(--space-2) 0"></span></p>
   <span class="skeleton" style="height: 18px; width: 80%"></span><span class="skeleton" style="height: 46px"></span>`;
 
-async function plan() {
+async function plan(mark = timeView('plan')) {
   if (!started) return;
+  markPlan = mark;
   syncURL();
   store.write('rjt-when', {by: trip.by, time: trip.time, days: trip.days});
   $('plan-title').textContent = trip.by === 'leave' ? 'When will you arrive?' : 'When should you leave?';
   drawStart();
   const box = $('plan-answer'), mine = ++asked;
-  if (!trip.a || !trip.b) { answer = bike = null; box.hidden = true; drawMap(); return; }
+  if (!trip.a || !trip.b) { answer = bike = null; box.hidden = true; drawMap(); mark('answer'); mark('complete'); return; }
   box.hidden = false;
   if (answer?.plans) box.classList.add('card--busy');
   else { box.innerHTML = WORKING; box.setAttribute('aria-busy', 'true'); }
@@ -213,7 +218,7 @@ async function plan() {
     answer = {failed: error.message};
   }
   box.classList.remove('card--busy'); box.removeAttribute('aria-busy');
-  draw(); drawMap(true);
+  draw(); mark(answer.failed ? 'error' : 'answer'); drawMap(true);
 }
 
 // ---------- the words ----------
@@ -489,6 +494,8 @@ async function drawMap(fit = false) {
   const key = $('plan-map-key');
   key.innerHTML = `${p ? '<li><i class="line"></i>Public transport</li><li><i class="line walk"></i>Walk</li>' : ''}${cycle ? '<li><i class="line bike"></i>Bike</li>' : ''}`;
   key.hidden = !key.innerHTML;
+  if (answer?.plans && !$('plan-answer').hasAttribute('aria-busy') && !$('plan-answer').classList.contains('card--busy') &&
+      !waiting.length && bike?.state !== 'asking') markPlan?.('complete');
 }
 
 // ---------- wiring ----------
@@ -537,10 +544,15 @@ function start() {
 }
 
 // Called whenever the view is shown, and when the bike speed changes.
-export function showPlan(context) {
+export function showPlan(context, mark = timeView('plan')) {
   ctx = context;
-  if (!started) { start(); plan(); return; }
+  if (!started) { start(); plan(mark); return; }
+  markPlan = mark;
   syncURL();
   if (answer && trip.a && trip.b) draw();
+  if (!$('plan-answer').classList.contains('card--busy') && !$('plan-answer').hasAttribute('aria-busy')) {
+    mark(answer?.failed ? 'error' : 'answer');
+    if (!answer) mark('complete');
+  }
   drawMap();
 }

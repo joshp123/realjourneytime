@@ -2,6 +2,8 @@
 import {ride, lines, bikeMinutes, percentile, DAY_START} from './stats.js';
 import {showPlan, placeField, myLocation, nameOfPoint, rememberPlace} from './plan.js';
 import {$, esc, pad, clock, duration, thousands, dateLabel, glyph, fillGlyphs, atSpeed, replaceOnType, token, DAYS, SPEEDS} from './ui.js';
+import {timeView} from './view-timing.js';
+import {diagnose, diagnostics} from './diagnostics.js';
 
 const DEFAULT = {route: 'GVB-2', from: 'NL:Q:30005011', to: 'NL:Q:30006054'};   // Amsterdam tram 2, Centraal Station to Rijksmuseum
 const REACH_START = {point: [52.08889, 5.11028], name: 'Utrecht Centraal'};
@@ -18,6 +20,7 @@ const state = {index: [], route: null, from: null, to: null, days: 'weekdays', s
                        hour: +(params.get('hour') ?? 8), minutes: [30, 45, 60].includes(+params.get('minutes')) ? +params.get('minutes') : 30}};
 const cache = new Map();
 let map, mapLayer, reachMap, reachLayer, drawn = [], bikeOnChart = false;
+let catalog;
 
 const mins = m => duration(m * 60);
 const stopName = id => state.route?.stops[id]?.name || id;
@@ -89,13 +92,28 @@ function setStops(from, to) {
 
 const WORKING = '<p class="answer answer--plain">Loading…</p><span class="skeleton" style="width: 150px; height: 44px"></span><span class="skeleton" style="height: 18px; width: 80%"></span>';
 
-async function loadRoute(key, from, to) {
+async function loadRoute(key, from, to, mark = timeView(state.view), details) {
   const meta = metaOf(key) || state.index[0];
+  const view = state.view, attempt = state.routeAttempt = (state.routeAttempt || 0) + 1;
+  state.version = (state.version || 0) + 1;
   if (!state.result) for (const id of ['lines-answer', 'history-answer']) $(id).innerHTML = WORKING;
   let route;
   // The server sends the route without its journeys (a year of a busy line is tens of megabytes).
-  try { route = await json(`api/route?key=${encodeURIComponent(meta.key)}`); } catch { return failLines(() => loadRoute(key, from, to)); }
+  const routeLoading = details || json(`api/route?key=${encodeURIComponent(meta.key)}`);
+  if (view === 'history') historyData(meta).catch(() => {});
+  if (view === 'journeys' && !state.start && !state.end && meta.stop_ids.includes(from) && meta.stop_ids.includes(to) && from !== to) {
+    json(journeyURL(meta.key, from, to, state.days)).catch(() => {});
+  }
+  try { route = await routeLoading; } catch {
+    if (attempt === state.routeAttempt && view === state.view) {
+      failLines(() => loadRoute(key, from, to));
+      mark('error');
+    }
+    return;
+  }
+  if (attempt !== state.routeAttempt || view !== state.view) return;
   state.route = route;
+  state.result = null;
   state.mapStart = null;
   $('route-search').value = lineName(meta);
   const first = route.first, last = route.last;
@@ -104,7 +122,7 @@ async function loadRoute(key, from, to) {
   state.end = state.end && state.end >= state.start && state.end <= last ? state.end : last;
   $('start-date').value = state.start; $('end-date').value = state.end;
   setStops(from, to);
-  refresh(true);
+  return refresh(true, mark);
 }
 
 function reverse() {
@@ -178,19 +196,33 @@ function failLines(tryAgain) {
   $('chart-card').hidden = true; $('history-stage').hidden = true;
 }
 
-async function refresh(fitMap = false) {
+function journeyURL(route, from, to, days, start, end) {
+  const q = new URLSearchParams({route, from, to, days});
+  if (start) q.set('start', start);
+  if (end) q.set('end', end);
+  return `api/journeys?${q}`;
+}
+
+function cyclePath(route, from, to) {
+  const a = route.stops[from], b = route.stops[to];
+  if (a?.lat == null || b?.lat == null) return Promise.resolve(null);
+  return json(`api/bike-route?a=${a.lat},${a.lon}&b=${b.lat},${b.lon}`).catch(() => null);
+}
+
+async function refresh(fitMap = false, mark = timeView(state.view)) {
   const {route, from, to, days, start, end} = state;
+  if (state.view === 'history') { syncURL(); return showHistory(mark); }
   const version = state.version = (state.version || 0) + 1;
   let answer;
   $('route-error').hidden = true;
   $('lines-answer').classList.add('card--busy');
   $('date-summary').textContent = `${dateLabel(start)} to ${dateLabel(end)}`;
   $('days').value = days;
+  const bike = cyclePath(route, from, to);
   try {
-    const q = new URLSearchParams({route: route.key, from, to, days, start, end});
-    answer = await json(`api/journeys?${q}`);
+    answer = await json(journeyURL(route.key, from, to, days, start === route.first ? '' : start, end === route.last ? '' : end));
   } catch (error) {
-    if (version === state.version) { $('lines-answer').classList.remove('card--busy'); failLines(() => refresh(fitMap)); }
+    if (version === state.version) { $('lines-answer').classList.remove('card--busy'); failLines(() => refresh(fitMap)); mark('error'); }
     return;
   }
   if (version !== state.version) return;
@@ -201,12 +233,11 @@ async function refresh(fitMap = false) {
   // a handful of journeys and their long waits would draw a spike.
   const dayCount = new Set(records.map(r => r.date)).size;
   state.result = {records, line: lines(records, Math.max(3, Math.round(dayCount / 5))), cancelled: answer.cancelled, stranded: answer.stranded};
-  if (state.view === 'journeys') showLines(fitMap);
-  if (state.view === 'history') showHistory();
+  if (state.view === 'journeys') showLines(fitMap, mark, bike);
   syncURL();
 }
 
-function showLines(fitMap) {
+function showLines(fitMap, mark, bike) {
   const {records, cancelled, stranded} = state.result, route = state.route, meta = metaOf(route.key), days = DAYS[state.days];
   const box = $('lines-answer');
   $('chart-card').hidden = !records.length;
@@ -225,7 +256,8 @@ function showLines(fitMap) {
     drawChart();
   }
   map?.invalidateSize();
-  drawMap(fitMap);
+  mark?.('answer');
+  drawMap(fitMap, MAP_NOTE, bike).then(() => mark?.('complete'));
 }
 
 function syncURL() {
@@ -364,6 +396,9 @@ function baseMap(id) {
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19, className: 'tiles'}).addTo(m);
   m.attributionControl.setPrefix(false);
   m.zoomControl?.setPosition('topright');
+  for (const name of ['dragstart', 'dragend', 'zoomstart', 'zoomend', 'click']) {
+    m.on(name, () => diagnose('map-' + name, id, m.getZoom()));
+  }
   return m;
 }
 
@@ -384,7 +419,7 @@ function nearestVertex(line, [lat, lon], from = 0) {
 }
 
 const MAP_NOTE = 'Choose a stop on the map for From, then another for To.';
-async function drawMap(fit, note = MAP_NOTE) {
+async function drawMap(fit, note = MAP_NOTE, bikePath) {
   if (!window.L || !state.route || state.view !== 'journeys') return;
   if (!map) { map = baseMap('map'); mapLayer = L.layerGroup().addTo(map); fit = true; }
   mapLayer.clearLayers();
@@ -413,8 +448,8 @@ async function drawMap(fit, note = MAP_NOTE) {
   if (state.mapStart || !located(state.from) || !located(state.to)) return;
   const asked = `${route.key}|${state.from}|${state.to}`;
   try {
-    const bike = await json(`api/bike-route?a=${ll(state.from).join(',')}&b=${ll(state.to).join(',')}`);
-    if (asked !== `${state.route.key}|${state.from}|${state.to}` || !bike.path?.length) return;
+    const bike = await (bikePath || cyclePath(route, state.from, state.to));
+    if (asked !== `${state.route.key}|${state.from}|${state.to}` || !bike?.path?.length) return;
     L.polyline(bike.path, {className: 'route-bike'}).addTo(mapLayer);
     key.innerHTML = `${name}<li><i class="line bike"></i>Bike</li>`;
   } catch { /* the page works without the bike route */ }
@@ -436,7 +471,8 @@ function chooseOnMap(id) {
 
 let reachField, reachAreas = {}, reachFit = true;
 
-function setReach(point, name) {
+function setReach(point, name, source = 'link') {
+  diagnose('reach-origin', source);
   state.reach.point = point; state.reach.name = name;
   $('reach-from').value = name;
   reachFit = true;
@@ -459,7 +495,7 @@ function showAreas() {
   }
 }
 
-async function showReach() {
+async function showReach(mark = timeView('reach')) {
   if (!reachMap) {
     reachMap = baseMap('reach-map');
     reachLayer = L.layerGroup().addTo(reachMap);
@@ -467,7 +503,7 @@ async function showReach() {
       const at = {lat: +e.latlng.lat.toFixed(5), lon: +e.latlng.lng.toFixed(5)};
       let name = '';
       try { name = await nameOfPoint(at) || ''; } catch { /* a point without a name */ }
-      setReach([at.lat, at.lon], name);
+      setReach([at.lat, at.lon], name, 'map');
     });
     reachMap.setView(state.reach.point, 11, {animate: false});
     // A link that gives only the point: name it by its nearest stop, as a point chosen on the map is.
@@ -482,7 +518,7 @@ async function showReach() {
   const version = state.reachVersion = (state.reachVersion || 0) + 1;
   let data;
   try { data = await json(`api/reach?lat=${point[0].toFixed(5)}&lon=${point[1].toFixed(5)}&hour=${hour}&minutes=${budget}&kmh=${state.kmh}`); }
-  catch { if (version === state.reachVersion) { box.classList.remove('card--busy'); box.innerHTML = `${notice(FAILED)}${retry('reach-retry')}`; } return; }
+  catch { if (version === state.reachVersion) { box.classList.remove('card--busy'); box.innerHTML = `${notice(FAILED)}${retry('reach-retry')}`; mark('error'); } return; }
   if (version !== state.reachVersion) return;
   const solid = c => c.replace(/\/\s*[\d.]+\)/, '/ 1)');
   const area = async (layer, tokenName) => {
@@ -490,7 +526,8 @@ async function showReach() {
     const colour = token(tokenName), alpha = +colour.match(/\/\s*([\d.]+)\)/)[1];
     return L.imageOverlay(await tinted(layer.png, solid(colour)), layer.bounds, {opacity: alpha});
   };
-  const areas = {bike: await area(data.bike, '--bike-area'), transit: await area(data.transit, '--pt-area')};
+  const [bike, transit] = await Promise.all([area(data.bike, '--bike-area'), area(data.transit, '--pt-area')]);
+  const areas = {bike, transit};
   if (version !== state.reachVersion) return;
   reachLayer.clearLayers();
   reachAreas = areas;
@@ -511,6 +548,7 @@ async function showReach() {
   box.innerHTML = `<h2 class="heading">People living within ${budget} min of ${name && !/^Near |^My location/.test(name) ? esc(name) : 'this point'}</h2>
     <div class="bars bars--big">${row('pt', data.transit.people, 'By public transport')}${row('bike', data.bike.pending ? null : data.bike.people, `By bike ${atSpeed(state.kmh)}`)}</div>
     <p class="note">Public transport here means a walk to a stop, one ride with no change, then a walk.</p>`;
+  mark('answer'); mark('complete');
 }
 
 // ---------- History: has it got slower ----------
@@ -519,11 +557,17 @@ const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const nameLabel = stop => `${norm(stop?.town)}|${norm(stop?.name)}`;
 let historyYears = [];
 
-async function showHistory() {
+function historyData(meta) {
+  const file = meta.mode !== 'train' ? `${meta.key.split('-')[0]}-${meta.mode}` : meta.key;
+  return json(`data/history/${file}.json`);
+}
+
+async function showHistory(mark = timeView('history')) {
   const meta = metaOf(state.route.key);
+  const version = state.historyVersion = (state.historyVersion || 0) + 1;
   let data;
-  const file = meta.mode !== 'train' ? `${meta.key.split('-')[0]}-${meta.mode}` : state.route.key;
-  try { data = await json(`data/history/${file}.json`); } catch { data = null; }
+  try { data = await historyData(meta); } catch { data = null; }
+  if (version !== state.historyVersion || state.view !== 'history' || state.route.key !== meta.key) return;
   const years = [];
   if (data) {
     const want = data.match === 'id' ? [state.from, state.to] : [nameLabel(state.route.stops[state.from]), nameLabel(state.route.stops[state.to])];
@@ -547,7 +591,7 @@ async function showHistory() {
   const shown = years.filter(y => y.points.length), missing = years.filter(y => !y.points.length).map(y => y.year), box = $('history-answer');
   historyYears = shown.length > 1 ? [shown[0], shown.at(-1)] : shown;
   $('history-stage').hidden = !shown.length;
-  if (!shown.length) { box.innerHTML = notice('No earlier timetables found for these stops. Try a stop nearby.'); return; }
+  if (!shown.length) { box.innerHTML = notice('No earlier timetables found for these stops. Try a stop nearby.'); mark('answer'); mark('complete'); return; }
   const first = shown[0], last = shown.at(-1), change = last.usual - first.usual;
   const against = shown.length < 2 ? '' : change ? `${mins(Math.abs(change))} ${change > 0 ? 'slower' : 'quicker'} than in ${first.year}.` : `the same as in ${first.year}.`;
   // A line that was renumbered is counted under its old numbers, and the year says which.
@@ -562,6 +606,7 @@ async function showHistory() {
   note.hidden = meta.mode === 'train';
   note.textContent = `Lines are sometimes renumbered, so each year counts every ${meta.operator} ${vehicleOf(meta)} between these stops. A stop that was renamed leaves a gap.`;
   drawHistory();
+  mark('answer'); mark('complete');
 }
 
 // Two years only, the latest solid and the earliest dashed.
@@ -610,18 +655,23 @@ const bikeMode = () => document.querySelector('[data-mode][aria-pressed="true"]'
 const fold = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 let bikeRows = [];
 
-async function showBike() {
+async function showBike(mark = timeView('bike'), prefetched) {
+  await catalog;
+  if (state.view !== 'bike' || !state.index.length) return;
   const box = $('bike-answer');
   $('bike-stage').hidden = !state.bikeReady;
-  if (!state.bikeReady) { box.innerHTML = notice('Bike times are not ready yet. Try again later.'); return; }
+  if (!state.bikeReady) { box.innerHTML = notice('Bike times are not ready yet. Try again later.'); mark('answer'); mark('complete'); return; }
   const mode = bikeMode(), kmh = state.kmh;
   if (!box.querySelector('.answer')) box.innerHTML = WORKING;
   let table = null;
   try {
-    if (!state.noBikeTables) table = await load(`data/bike-comparison/${kmh}/${mode}.json`).catch(() => { state.noBikeTables = true; return null; });
+    if (!state.noBikeTables) {
+      table = await (prefetched || json(bikeTableURL(kmh, mode))).catch(() => null);
+      if (!table) state.noBikeTables = true;
+    }
     table ||= await bikeTable(mode);
-  } catch { box.innerHTML = `${notice(FAILED)}${retry('bike-retry')}`; $('bike-stage').hidden = true; return; }
-  if (kmh !== state.kmh || mode !== bikeMode()) return;
+  } catch { box.innerHTML = `${notice(FAILED)}${retry('bike-retry')}`; $('bike-stage').hidden = true; mark('error'); return; }
+  if (kmh !== state.kmh || mode !== bikeMode() || state.view !== 'bike') return;
   const share = (n, of) => of ? Math.round(100 * n / of) : 0;
   const modes = ['train', 'metro', 'tram', 'bus'].filter(m => table.byMode[m]?.total);
   box.innerHTML = `<p class="answer">The bike is quicker on <b>${share(table.wins, table.total)}%</b> of trips with no change, if you need to be on time 9 days in 10. Against the timetable alone: ${share(table.timetableWins, table.total)}%.</p>
@@ -633,8 +683,12 @@ async function showBike() {
     <p class="note">${thousands(table.total)} trips between two stops on one line, each with at least 100 recorded journeys.</p>`;
   const pairs = (rows, flaky) => rows.map(r => { const p = Object.fromEntries(table.fields.map((f, i) => [f, r[i]])); p.bike = p.km / kmh * 60; p.usual = p.median ?? p.mean; p.flaky = flaky; return p; });
   bikeRows = [...pairs(table.steady, false), ...pairs(table.flaky, true)];
-  drawBikeRows();
+  mark('answer');
+  await drawBikeRows();
+  mark('complete');
 }
+
+const bikeTableURL = (kmh, mode) => `data/bike-comparison/${kmh}/${mode}.json`;
 
 // The trips on the list so far. The ready-made tables carry each stop's town; without them (the dev server's
 // fallback) it comes from the line's file, read only for the trips shown.
@@ -668,7 +722,7 @@ function openBikeRow(event) {
   if (!p) return;
   event.preventDefault();
   state.days = 'weekdays';
-  showView('journeys'); loadRoute(p.route, p.from, p.to);
+  frame('journeys'); loadRoute(p.route, p.from, p.to);
   scrollTo(0, 0);
 }
 
@@ -681,6 +735,7 @@ function setKmh(kmh) {
 
 // Which view is on the page, without filling it.
 function frame(view) {
+  diagnose('view', view);
   state.view = view;
   const history = view === 'history';
   $('plan').hidden = view !== 'plan';
@@ -694,15 +749,17 @@ function frame(view) {
   document.querySelectorAll('[data-view]').forEach(a => a.dataset.view === view ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
 }
 
-function showView(view) {
+function showView(view, mark = timeView(view)) {
   frame(view);
   const history = view === 'history';
-  if (view === 'plan') showPlan({kmh: () => state.kmh, baseMap});
-  else if (view === 'bike') showBike();
-  else if (view === 'reach') showReach();
-  else if (!state.route) { if (state.index.length) loadRoute(DEFAULT.route, DEFAULT.from, DEFAULT.to); }   // first visit to a chart
-  else if (history) showHistory();
-  else if (state.result) showLines(false);
+  if (view === 'plan') showPlan({kmh: () => state.kmh, baseMap}, mark);
+  else if (view === 'bike') showBike(mark);
+  else if (view === 'reach') showReach(mark);
+  else if (!state.route) {
+    catalog.then(() => { if (state.view === view && state.index.length) loadRoute(DEFAULT.route, DEFAULT.from, DEFAULT.to, mark); });
+  } else if (history) showHistory(mark);
+  else if (state.result) showLines(false, mark);
+  else refresh(true, mark);
   syncURL();
 }
 
@@ -721,10 +778,10 @@ function wire() {
   $('show-bike').addEventListener('change', showAreas);
   reachField = placeField('reach-from', {
     current: () => state.reach.name,
-    onPlace: place => { rememberPlace(place); setReach([place.lat, place.lon], place.label); },
+    onPlace: place => { rememberPlace(place); setReach([place.lat, place.lon], place.label, 'place'); },
     onHere: () => useMyLocation(),
   });
-  const useMyLocation = () => myLocation(place => setReach([place.lat, place.lon], place.label), text => reachField.fail(text), true);
+  const useMyLocation = () => myLocation(place => setReach([place.lat, place.lon], place.label, 'location'), text => reachField.fail(text), true);
   $('my-location').addEventListener('click', () => { reachField.ok(); useMyLocation(); });
   $('reach-form').addEventListener('submit', event => event.preventDefault());
   $('reach-answer').addEventListener('click', event => { if (event.target.closest('#reach-retry')) showReach(); });
@@ -769,28 +826,40 @@ function wire() {
 }
 
 async function boot() {
-  if (state.view === 'plan') showView('plan');   // the planner does not wait for the list of lines
-  try {
-    const index = await json('data/index.json');
+  const view = state.view, mark = timeView(view, 0);
+  const routeView = ['journeys', 'history'].includes(view);
+  state.days = DAYS[params.get('days')] ? params.get('days') : 'weekdays';
+  state.start = params.get('start') || ''; state.end = params.get('end') || '';
+  catalog = json('data/index.json').then(index => {
     state.index = index.routes;
     state.bikeReady = index.bike !== false;
     const transit = index.coverage.transit || index.coverage.ret, trains = index.coverage.trains;
     if (transit) $('transit-days').textContent = `${transit.days} days between ${dateLabel(transit.start)} and ${dateLabel(transit.end)}`;
     if (trains) $('train-days').textContent = `from ${dateLabel(trains.start)} to ${dateLabel(trains.end)}`;
-    state.days = DAYS[params.get('days')] ? params.get('days') : 'weekdays';
-    state.start = params.get('start') || ''; state.end = params.get('end') || '';
-    const key = state.index.some(r => r.key === params.get('route')) ? params.get('route') : DEFAULT.route;
-    if (state.view === 'plan') return;
-    if (['journeys', 'history'].includes(state.view)) await loadRoute(key, params.get('from') || DEFAULT.from, params.get('to') || DEFAULT.to);
-    showView(state.view);
-  } catch (error) {
-    // Without the list of lines only Plan works.
-    if (state.view === 'plan') return;
-    frame(state.view);
+  }).catch(() => {
+    if (state.view === 'plan' || state.view === 'reach') return;
     failLines(boot);
-    for (const id of ['reach-answer', 'bike-answer']) $(id).innerHTML = `${notice(FAILED)}${retry('boot-retry')}`;
+    $('bike-answer').innerHTML = `${notice(FAILED)}${retry('boot-retry')}`;
     $('bike-stage').hidden = true;
+    mark('error');
+  });
+  if (view === 'plan' || view === 'reach') return showView(view, mark);
+  frame(view);
+  if (view === 'bike') {
+    const table = json(bikeTableURL(state.kmh, bikeMode())).catch(() => null);
+    return showBike(mark, table);
+  }
+  const requested = params.get('route') || DEFAULT.route;
+  const from = params.get('from') || DEFAULT.from, to = params.get('to') || DEFAULT.to;
+  const details = routeView && /^[\w.-]+$/.test(requested)
+    ? json(`api/route?key=${encodeURIComponent(requested)}`) : null;
+  details?.catch(() => {});
+  await catalog;
+  if (state.view === view && state.index.length) {
+    const key = state.index.some(r => r.key === params.get('route')) ? params.get('route') : DEFAULT.route;
+    return loadRoute(key, from, to, mark, key === requested ? details : null);
   }
 }
+diagnostics();
 wire();
 boot();
