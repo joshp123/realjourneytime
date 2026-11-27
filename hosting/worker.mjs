@@ -4,6 +4,7 @@ import {chart, plannerLegs} from './timings.mjs';
 import {requestTiming} from './request-timing.mjs';
 
 const ASSETS = /*ASSETS*/ {};
+const ASSET_PREFIX = /*ASSET_PREFIX*/ null;
 const RELEASE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const KEY = /^[A-Za-z0-9_.-]+$/;
 const MAX_OBJECT = 32 * 1024 * 1024;
@@ -172,7 +173,10 @@ export default {
     const url = new URL(request.url);
     const object = objectPath(url.pathname);
     const path = url.pathname === '/' ? '/index.html' : url.pathname;
-    const asset = Object.hasOwn(ASSETS, path) ? ASSETS[path] : null;
+    const versioned = path.match(/^\/assets\/[a-f0-9]{16}(\/.*\.(?:js|css))$/);
+    const file = versioned?.[1] ?? path;
+    const asset = Object.hasOwn(ASSETS, file) ? ASSETS[file] : null;
+    const immutable = versioned && path === ASSET_PREFIX + file;
     let route = 'unknown', response;
     try {
       if (path.startsWith('/__data/')) {
@@ -183,9 +187,10 @@ export default {
         response = await diagnostics(request, url);
       } else if (!['GET', 'HEAD'].includes(request.method)) response = json({error: 'Use GET or HEAD'}, 405);
       else if (asset) {
-        route = path;
+        route = file;
         response = new Response(request.method === 'HEAD' ? null : decode(asset[1]), {
-          headers: {'Content-Type': asset[0], 'Cache-Control': 'private, max-age=0, must-revalidate'},
+          headers: {'Content-Type': asset[0],
+            'Cache-Control': immutable ? 'private, max-age=31536000, immutable' : 'private, max-age=0, must-revalidate'},
         });
       } else if (path === '/favicon.ico') {
         route = path;

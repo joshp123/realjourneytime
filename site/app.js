@@ -827,7 +827,6 @@ function wire() {
 
 async function boot() {
   const view = state.view, mark = timeView(view, 0);
-  const routeView = ['journeys', 'history'].includes(view);
   state.days = DAYS[params.get('days')] ? params.get('days') : 'weekdays';
   state.start = params.get('start') || ''; state.end = params.get('end') || '';
   catalog = json('data/index.json').then(index => {
@@ -851,9 +850,12 @@ async function boot() {
   }
   const requested = params.get('route') || DEFAULT.route;
   const from = params.get('from') || DEFAULT.from, to = params.get('to') || DEFAULT.to;
-  const details = routeView && /^[\w.-]+$/.test(requested)
+  const details = /^[\w.-]+$/.test(requested)
     ? json(`api/route?key=${encodeURIComponent(requested)}`) : null;
   details?.catch(() => {});
+  if (view === 'journeys' && details && !state.start && !state.end && from !== to) {
+    json(journeyURL(requested, from, to, state.days)).catch(() => {});
+  }
   await catalog;
   if (state.view === view && state.index.length) {
     const key = state.index.some(r => r.key === params.get('route')) ? params.get('route') : DEFAULT.route;
