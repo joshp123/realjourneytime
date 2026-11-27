@@ -8,25 +8,31 @@ England. The idea and the "9 days in 10" measure are his.
 
 ## What it shows
 
-- **Plan:** when to leave to arrive on time 9 days in 10, from any address to any other, with up to two changes.
-  Each option is replayed on every recorded day.
-- **Lines:** one line between two stops through the day: the time you need 9 days in 10, the timetable, and every
-  recorded journey.
-- **How far:** how many people you can reach in 30, 45 or 60 minutes from a point, by public transport and by bike.
-- **History:** the scheduled time between two stops in October each year since 2019.
-- **Bike:** the trips where the bike is quicker than public transport, at 12 to 45 km/h.
+- **Journey times:** every recorded journey between two places, on every line that makes the trip: what the
+  timetable says, what happens on average, how long you must leave to be sure (enough for 9 journeys in 10), and
+  how long the bike takes. Each dot is one journey; point at it to read it, or download them all.
+- **A line, stop by stop:** every vehicle that ran on a chosen day, drawn from its recorded time at each stop,
+  and how long each stretch between stops takes, usually and in its slowest hour.
+- **How far can I get?** how many people you can reach in 30, 45 or 60 minutes from a point, by public transport
+  and by bike.
+- **Where the bike wins:** the share of trips the bike is quicker on, by train, metro, tram and bus, at 15 to
+  45 km/h, and its biggest win on each line.
 
 ## How the numbers are worked out
 
-The time for a journey runs from its timetabled departure to when you actually arrive. If your vehicle was
-cancelled, or another vehicle on any line between the same two stops got there first, that one counts, wait
-included. Days with no service for 2 hours or more (a strike or a closure) are left out. "9 days in 10" is the
-90th percentile of these times, over a one-hour window centred on each arrival. The calculation is in
-`site/stats.js`, shared by the page and the build.
+You pick two places, never a line. A place is a stop as a passenger knows it: every platform with one name, and
+a station together with the stops at it (`pipeline/packed.mjs`). The page finds every line that runs from one to
+the other without a change and reads all their recorded rides (`site/data.js`).
 
-Plan searches the timetable for direct lines, one change, or two changes with a train in the middle, then replays
-the best few on every recorded day of the type you chose (`site/planner.js`, which runs in the browser). You walk
-at 4.8 km/h, 30% further than the straight line.
+The time for a journey runs from its timetabled departure to when you actually arrive. If your vehicle was
+cancelled, or another vehicle on any line between the same two places got there first, that one counts, wait
+included. Times with no service for 2 hours or more (a strike or a closure) are left out. "To be sure" is the
+90th percentile of these times, over a one-hour window centred on each arrival. The calculation is in
+`site/stats.js` and `site/trip.js`.
+
+Lines that take about the same time by timetable are drawn together (Tram 2, 12 and 24). Where they differ by
+more than a tenth (Intercity, Sprinter, Metro E) the chart opens on the fastest and never averages them. When
+fewer than half the timetabled journeys were tracked, the chart shows dots without lines and says so.
 
 The bike uses the shortest legal route on OpenStreetMap at the speed you choose, with no time for lights or
 parking. Distances between stops come from [OSRM](https://project-osrm.org/) with a bicycle profile tuned for Dutch
@@ -64,6 +70,10 @@ uv run python pipeline/serve.py 8765  # the site at http://localhost:8765/
 ```
 
 `pipeline/restart.sh` restarts the local server and the journeys service it uses (`pipeline/journeys.mjs`).
+
+`uv run python hosting/bike_table.py site/data` writes the bike tables the local server reads.
+`uv run --with playwright python tests/pages.py http://localhost:8765` uses every page as a visitor would, on a
+phone and a laptop, and fails on anything broken.
 
 ## Hosting
 

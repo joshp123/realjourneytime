@@ -9,7 +9,7 @@ export function timeView(view, start = performance.now()) {
     token.marks.add(phase);
     // The next frame after this one gives the browser a chance to paint the result.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (active.get(view) === token && document.querySelector('[aria-current="page"]')?.dataset.view === view) {
+      if (active.get(view) === token && document.body.dataset.page === view) {
         performance.measure(`rjt.${view}.${phase}`, {start, end: performance.now()});
       }
     }));

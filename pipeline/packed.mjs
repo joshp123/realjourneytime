@@ -16,6 +16,8 @@ const NONE = -(2 ** 31);  // a missing time; -1 (cancelled) is kept as it is
 const MAGIC = 0x31544a52;  // "RJT1"
 const TYPES = ['weekdays', 'saturday', 'sunday'];
 const SAME_STOP = 400;    // platforms with one name this close together are one stop
+const AT_STATION = 300;   // a stop this close to a station, and named after it, is the same place
+const PLANNER = 3;        // raise when the planner files change shape, so they are written again
 const file = name => new URL(`packed/${name}`, DATA);
 
 function writeWhole(url, body) {
@@ -105,25 +107,49 @@ function writePlanner(coverage, stops, routes) {
     byName.get(key).push(id);
   }
   const order = {train: 0, metro: 1, tram: 2, bus: 3};
+  const found = [];   // each stop as a list of its platforms
   for (const ids of byName.values()) {
     const left = new Set(ids);
     while (left.size) {
       const members = [left.values().next().value];
       left.delete(members[0]);
       for (const a of members) for (const b of left) if (metres(stops[a], stops[b]) <= SAME_STOP) { members.push(b); left.delete(b); }
-      const [name, town] = stops[members[0]], station = members[0].startsWith('S:');
-      const modes = new Set(), journeys = new Set();
-      let weight = 0;
-      for (const id of members) for (const r of calls.get(id)) {
-        modes.add(r.mode);
-        r.patterns.forEach((p, i) => { if (p.some(s => r.stop_ids[s] === id) && !journeys.has(`${r.key}|${i}`)) { journeys.add(`${r.key}|${i}`); weight += r.weights[i]; } });
-      }
-      const mean = k => +(members.reduce((sum, id) => sum + stops[id][k], 0) / members.length).toFixed(5);
-      for (const id of members) group.set(id, places.length);
-      places.push([station || !town || fold(name).includes(fold(town)) ? name : `${name}, ${town}`,
-                   station ? 'Railway station' : `${[...modes].sort((a, b) => order[a] - order[b]).join(', ').replace(/^./, c => c.toUpperCase())} stop`,
-                   mean(2), mean(3), Math.round(10 * Math.log10(1 + weight)) / 10]);
+      found.push(members);
     }
+  }
+  // A station and the stops at it are one place to a visitor: "Centraal Station" outside Amsterdam Centraal,
+  // "Blaak" under Rotterdam Blaak, "Station" in a town with one. The stop joins the nearest such station.
+  const stations = found.filter(m => m[0].startsWith('S:'));
+  const named = (stop, station) => {
+    const a = fold(stop), b = fold(station);
+    return a === b || /\b(station|centraal|stat|cs)\b|station$/.test(a) || b.endsWith(' ' + a) || a.startsWith(b + ' ');
+  };
+  const merged = new Set();
+  for (const members of found) {
+    if (members[0].startsWith('S:')) continue;
+    let best = null;
+    for (const station of stations) {
+      const d = Math.min(...members.map(id => metres(stops[id], stops[station[0]])));
+      if (d <= AT_STATION && named(stops[members[0]][0], stops[station[0]][0]) && (!best || d < best[0])) best = [d, station];
+    }
+    if (best) { best[1].push(...members); merged.add(members); }
+  }
+  for (const members of found) {
+    if (merged.has(members)) continue;
+    const [name, town] = stops[members[0]], station = members[0].startsWith('S:');
+    const modes = new Set(), journeys = new Set();
+    let weight = 0;
+    for (const id of members) for (const r of calls.get(id)) {
+      modes.add(r.mode);
+      r.patterns.forEach((p, i) => { if (p.some(s => r.stop_ids[s] === id) && !journeys.has(`${r.key}|${i}`)) { journeys.add(`${r.key}|${i}`); weight += r.weights[i]; } });
+    }
+    const at = station ? [members[0]] : members;
+    const mean = k => +(at.reduce((sum, id) => sum + stops[id][k], 0) / at.length).toFixed(5);
+    for (const id of members) group.set(id, places.length);
+    const kinds = [...modes].sort((a, b) => order[a] - order[b]).join(', ').replace(/^./, c => c.toUpperCase());
+    places.push([station || !town || fold(name).includes(fold(town)) ? name : `${name}, ${town}`,
+                 station && modes.size === 1 ? 'Railway station' : station ? kinds : `${kinds} stop`,
+                 mean(2), mean(3), Math.round(10 * Math.log10(1 + weight)) / 10]);
   }
   const forPlanner = r => {
     const {weights, dates, ...rest} = r;
@@ -144,11 +170,18 @@ function writePlanner(coverage, stops, routes) {
   }
   writeFileSync(new URL('trains.json', next), JSON.stringify({routes: trains}));
   writeFileSync(new URL('places.json', next), JSON.stringify(places));
+  // Each bus, tram and metro line by name, with the two ends of its busiest stop pattern, for people who think
+  // in line numbers: [key, name, operator, mode, town, place it starts at, place it ends at, journeys].
+  const ends = routes.filter(r => r.mode !== 'train').map(r => {
+    const p = r.patterns[r.weights.indexOf(Math.max(...r.weights))].map(s => r.stop_ids[s]).filter(id => group.has(id));
+    return p.length < 2 ? null : [r.key, r.name, r.operator, r.mode, stops[p[0]][1], group.get(p[0]), group.get(p.at(-1)), r.weights.reduce((sum, w) => sum + w, 0)];
+  }).filter(Boolean);
+  writeFileSync(new URL('lines.json', next), JSON.stringify(ends));
   // Every recorded date of each source, by kind of day.
   const dates = {};
   for (const r of routes) for (const d of r.dates) ((dates[r.source] ||= {})[dayType(d)] ||= new Set()).add(d);
   for (const source of Object.values(dates)) for (const t of Object.keys(source)) source[t] = [...source[t]].sort();
-  writeFileSync(new URL('meta.json', next), JSON.stringify({coverage, dates}));
+  writeFileSync(new URL('meta.json', next), JSON.stringify({version: PLANNER, coverage, dates}));
   rmSync(out, {recursive: true, force: true});
   renameSync(next, out);
   return tiles.size;
@@ -174,7 +207,8 @@ export function packAll(log = () => {}) {
   }
   const used = new Set(routes.flatMap(r => r.stop_ids));
   for (const id of Object.keys(stops)) if (!used.has(id)) delete stops[id];
-  if (packed || routes.length !== old.routes.length || !existsSync(new URL('planner/meta.json', DATA))) {
+  const meta = new URL('planner/meta.json', DATA);
+  if (packed || routes.length !== old.routes.length || !existsSync(meta) || JSON.parse(readFileSync(meta)).version !== PLANNER) {
     writeWhole(file('network.json'), JSON.stringify({stops, routes}));
     log(`planner: ${writePlanner(index.coverage, stops, routes)} tiles`);
   }
@@ -198,7 +232,7 @@ export function open(entry) {
     const days = head.dates.map((date, i) => ({date, type: head.types[i]}));
     const time = v => v === NONE ? null : v;
     return {
-      ...entry, bytes: size, days,
+      ...entry, bytes: size, days, blocks: head.blocks, data, time,
       vehicles(from, to, keepDay, window) {
         const where = positions(entry, from, to), keep = days.map(keepDay), byDate = new Map();
         for (let b = 0; b < head.blocks.length; b += 4) {

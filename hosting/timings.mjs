@@ -93,7 +93,7 @@ function formatLeg(days) {
   return days.map(({date, type, journeys}) => ({date, type, legs: journeys.flatMap(j => {
     const sd = j[2] ?? j[1], sa = j[5] ?? j[6];
     if (sd == null || sa == null) return [];
-    const cancelled = [j[3], j[4], j[7], j[8]].includes(-1);
+    const cancelled = (j[4] ?? j[3]) === -1 || (j[7] ?? j[8]) === -1;
     return [[sd, sa, cancelled ? null : j[4] ?? j[3], cancelled ? null : j[7] ?? j[8], +cancelled]];
   })})).filter(day => day.legs.length);
 }

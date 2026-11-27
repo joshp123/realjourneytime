@@ -2,7 +2,7 @@
 
 GET /api/bike-route?a=lat,lon&b=lat,lon
 GET /api/reach?lat=..&lon=..&hour=8&minutes=30&kmh=15
-GET /api/route, /api/journeys, /api/planner-legs: passed to the journeys service (pipeline/journeys.mjs on port 8766)
+GET /api/route, /api/journeys, /api/planner-legs, /api/line, /api/line-day: passed to the journeys service (pipeline/journeys.mjs on port 8766)
 Run: uv run python pipeline/serve.py [port]
 The cycle network comes from its cache (osm/bike-network.npz, made by rebuild.sh). Without it the server still
 answers public transport reach, and says the bike parts are not ready.
@@ -148,7 +148,7 @@ class Handler(SimpleHTTPRequestHandler):
         url = urlparse(self.path)
         if not url.path.startswith("/api/"):
             return self.static(url.path)
-        if url.path in ("/api/route", "/api/journeys", "/api/planner-legs"):
+        if url.path in ("/api/route", "/api/journeys", "/api/planner-legs", "/api/line", "/api/line-day"):
             try:
                 with urlopen(f"http://127.0.0.1:8766{self.path}", timeout=120) as r:
                     return self.send_json_bytes(r.read())

@@ -31,12 +31,14 @@ export function positions(route, from, to) {
 }
 
 // One vehicle's ride between two stops, from its times at each (planned arrival and departure, then recorded
-// arrival and departure; -1 is cancelled), or null if the timetable does not show the ride.
+// arrival and departure; -1 is cancelled), or null if the timetable does not show the ride. It is cancelled
+// when it did not leave the first stop or did not reach the second: its other times can be about a part of the
+// journey before you board or after you get off.
 export function rideOf(sa0, sd0, aa0, ad0, sa1, sd1, aa1, ad1) {
   const sd = sd0 ?? sa0, sa = sa1 ?? sd1;
   if (sd == null || sa == null) return null;
-  const cancelled = aa0 === -1 || ad0 === -1 || aa1 === -1 || ad1 === -1;
   const ad = ad0 ?? aa0, aa = aa1 ?? ad1;
+  const cancelled = ad === -1 || aa === -1;
   return {sd, sa, ad, aa, cancelled, tracked: !cancelled && ad != null && aa != null && aa > ad};
 }
 

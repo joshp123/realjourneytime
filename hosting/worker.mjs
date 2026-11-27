@@ -43,7 +43,7 @@ const ungzip = stream => stream.pipeThrough(new DecompressionStream('gzip'));
 function objectPath(pathname) {
   if (pathname === '/data/index.json' || pathname === '/data/bike-pairs.json' ||
       pathname === '/data/bike/index.json' ||
-      /^\/data\/(?:history\/[\w.-]+\.json|planner\/(?:\d+\/\d+|meta|trains|places)\.json|bike-comparison\/(?:12|15|20|25|45)\/(?:all|train|metro|tram|bus)\.json|bike\/\d+\.bin)$/.test(pathname)) {
+      /^\/data\/(?:history\/[\w.-]+\.json|planner\/(?:\d+\/\d+|meta|trains|places|lines)\.json|bike-comparison\/(?:12|15|20|25|45)\/(?:all|train|metro|tram|bus)\.json|bike\/\d+\.bin)$/.test(pathname)) {
     return 'public/' + pathname.slice('/data/'.length) + '.gz';
   }
   return null;
@@ -84,7 +84,7 @@ async function upload(request, env, pathname) {
       return json({error: 'The release has no index'}, 409);
     }
     await env.DATA.put('active', release);
-  } else if (parts.length >= 2 && ['public', 'route', 'calls', 'grid', 'reach'].includes(parts[0])) {
+  } else if (parts.length >= 2 && ['public', 'route', 'calls', 'grid', 'reach', 'line'].includes(parts[0])) {
     await env.DATA.put(`releases/${key}`, request.body);
   } else return missing();
   return new Response(null, {status: 201, headers: {'Cache-Control': 'no-store'}});
@@ -125,6 +125,22 @@ async function data(request, env, url, object, timing) {
     case '/api/route': {
       if (!q.key || !KEY.test(q.key)) return missing();
       return serveObject(request, timing, prefix + `route/${q.key}.json.gz`);
+    }
+    case '/api/line': {
+      if (!q.key || !KEY.test(q.key)) return missing();
+      return serveObject(request, timing, prefix + `line/${q.key}.json.gz`);
+    }
+    case '/api/line-day': {
+      if (!q.key || !KEY.test(q.key) || !/^\d{4}-\d{2}-\d{2}$/.test(q.date ?? '')) return missing();
+      const line = await loadJson(`line/${q.key}.json.gz`);
+      const range = line?.ranges[line.dates.indexOf(q.date)];
+      if (!range) return missing();
+      const day = await read(`line/${q.key}.bin`, {range: {offset: range[0], length: range[1]}});
+      if (!day) throw new Error('Missing line day');
+      const gzip = /\bgzip\b/.test(request.headers.get('Accept-Encoding') ?? '');
+      return new Response(gzip ? day : await timing.unzip(day), {encodeBody: 'manual', headers: {
+        'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': CACHE, 'Vary': 'Accept-Encoding',
+        ...(gzip ? {'Content-Encoding': 'gzip'} : {})}});
     }
     case '/api/journeys': {
       if (!q.route || !KEY.test(q.route) || !q.from || !q.to) return json({error: 'Supply a route and two stops'}, 400);
@@ -195,7 +211,7 @@ export default {
       } else if (path === '/favicon.ico') {
         route = path;
         response = new Response(null, {status: 204});
-      } else if (object || ['/api/route', '/api/journeys', '/api/planner-legs', '/api/bike-route', '/api/reach'].includes(path)) {
+      } else if (object || ['/api/route', '/api/journeys', '/api/planner-legs', '/api/line', '/api/line-day', '/api/bike-route', '/api/reach'].includes(path)) {
         route = object ? '/data/' + path.split('/')[2] : path;
         response = await data(request, env, url, object, timing);
       } else response = missing();

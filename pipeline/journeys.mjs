@@ -7,10 +7,13 @@
 // GET /api/journeys?route=K&from=A&to=B&days=weekdays&start=YYYY-MM-DD&end=YYYY-MM-DD
 // GET /api/planner-legs?days=weekdays&leg=K,A,B,lo,hi&leg=...
 //     recorded rides from platform A to platform B on line K, timetabled to leave between lo and hi (seconds)
+// GET /api/line?key=K                          the line's directions and how long each stretch between stops takes
+// GET /api/line-day?key=K&date=YYYY-MM-DD      every journey of one day, stop by stop
 // Run: node pipeline/journeys.mjs [port]   (serve.py passes these paths through to it)
 import {createServer} from 'node:http';
 import {journeyRecords} from '../site/stats.js';
 import {open, packAll, routeJSON} from './packed.mjs';
+import {lineDay, lineSummary} from './lines.mjs';
 
 const port = Number(process.argv[2] || 8766);
 const CACHE_BYTES = 1e9;  // packed routes kept in memory, most recently used
@@ -62,6 +65,8 @@ function answer(url) {
             records: x.records.map(z => [z.date, z.sd, z.sa, z.arrival, Math.round(z.real * 10) / 10,
                                          Math.round(z.timetable * 10) / 10, z.cancelled ? 1 : 0, z.own ? 1 : 0])};
   }
+  if (url.pathname === '/api/line') return lineSummary(route(q.key));
+  if (url.pathname === '/api/line-day') return lineDay(route(q.key), q.date);
   if (url.pathname === '/api/planner-legs') {
     const days = q.days || 'weekdays';
     return {fields: ['sd', 'sa', 'ad', 'aa', 'cancelled'], legs: url.searchParams.getAll('leg').map(spec => {

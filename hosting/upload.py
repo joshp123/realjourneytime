@@ -22,7 +22,7 @@ def publish(args, site_token, publish_token):
         raise ValueError("Pack the complete data before uploading")
     directories = [folder]
     if args.add_derived:
-        directories = [folder / "public" / name for name in ("planner", "bike-comparison")]
+        directories = [folder / "public" / "planner", folder / "public" / "bike-comparison", folder / "line"]
     files = sorted(f for directory in directories for f in directory.rglob("*") if f.is_file())
     if not files:
         raise ValueError("There are no files to upload")
@@ -82,7 +82,7 @@ def main():
     p.add_argument("directory", type=Path)
     p.add_argument("release", help="A new release identifier. Reuse only to retry the same immutable input.")
     p.add_argument("--max-bytes", type=int, required=True)
-    p.add_argument("--add-derived", action="store_true", help="Upload planner and comparison files to an existing release")
+    p.add_argument("--add-derived", action="store_true", help="Upload the planner, bike comparison and line files to an existing release")
     p.add_argument("--workers", type=int, default=12, choices=range(1, 25), metavar="1..24")
     p.add_argument("--credentials-stdin", action="store_true", help="Read a JSON list of the Sites access and publish tokens")
     args = p.parse_args()

@@ -9,11 +9,14 @@ The MacBook runs the offline data build. The deployed Site has no dependency on 
 | `GET /data/index.json` | Existing national route index. |
 | `GET /api/route?key=K` | Existing route metadata, stop coordinates, shapes, bike distances and date coverage. |
 | `GET /api/journeys?route=K&from=A&to=B&days=weekdays&start=YYYY-MM-DD&end=YYYY-MM-DD` | Existing chart records and counters. The Worker selects columns for the two stops and uses the shared Real Journey Time calculation across the selected line and alternatives. |
-| `GET /api/planner-legs?days=weekdays&leg=K,A,B,lo,hi&leg=...` | Day-aligned sampled legs for planning. The browser picks and replays itineraries with up to one change. |
+| `GET /api/planner-legs?days=weekdays&leg=K,A,B,lo,hi&leg=...` | Every recorded ride between two platforms on one line. Journey times asks for the whole day (`lo=0`, `hi=200000`) of every line between two places and works out the chart in the browser (`site/trip.js`). |
+| `GET /api/line?key=K` | The line page's summary: the line's directions and, for each stretch between stops, the timetabled time, the usual time and the slowest hour. Served from `line/K.json.gz`. |
+| `GET /api/line-day?key=K&date=YYYY-MM-DD` | Every journey of one day, stop by stop: a byte range of `line/K.bin`, passed through still gzipped. |
 | `GET /data/planner/...` | Planning summaries from the route build. See below for the files and their schema. |
 | `GET /api/reach?lat=L&lon=O&hour=8&minutes=30&kmh=15` | The Worker looks up precomputed weekday ride times within 1 km of the origin, searches local cycle graph tiles, and counts the people reached in the accompanying 100 m cells. Returns two layers, each with a count, bounding box and PNG. |
 | `GET /api/bike-route?a=L,O&b=L,O` | A shortest path through the directed cycle graph. Returns metres and the path as latitude and longitude pairs. |
-| `GET /data/bike-comparison/<kmh>/<mode>.json` | Counts and visible rows computed offline for each speed and mode. |
+| `GET /data/bike-comparison/<kmh>/<mode>.json` | Counts, and the bike's biggest win on each line, computed offline for each speed and mode. |
+| `GET /data/planner/lines.json` | Each bus, tram and metro line by name with the places at its two ends, for people who type a line number. |
 | `GET /data/bike-pairs.json`, `GET /data/history/<key>.json` | The full bike comparison data and historical timetables, served compressed. |
 
 ## Updating the data
@@ -52,7 +55,18 @@ positions and centimetre edge weights. Transit reach groups the existing
 hourly 90th-percentile ride estimates by boarding area. The packed land and
 population grid preserves the existing count and walk model.
 
-## What "Plan a journey" needs
+## The line files
+
+After `hosting/pack.py`, run `node hosting/pack_lines.mjs <the same output directory>`. It reads the packed
+routes (`pipeline/packed.mjs`) and writes two objects a line under `line/`. `hosting/upload.py --add-derived`
+uploads them, with the planner and bike comparison files, to an existing release.
+
+## The planner files
+
+"Plan a journey" has gone; Journey times reads the same files, described below, with these changes: a station
+and the stops at it are one place, `places.json` rows are numbered by place, and `lines.json` is new.
+
+## What "Plan a journey" needed
 
 The planner runs in the browser: `site/planner.js` (the search and the replay, plain JavaScript with no Node or
 Worker APIs) reads everything through `site/plan-data.js`, which is the only file that knows these addresses.
