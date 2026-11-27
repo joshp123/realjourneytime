@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 SITE="$(cd .. && pwd)/site"
 # Generated data lives in data/ (each rebuild writes about 15 GB); site/data is a link to data/site-data.
-STORE="$(cd "$(dirname "$0")/.." && pwd)/data"
+STORE="$(cd .. && pwd)/data"
 NEXT="$STORE/site-next"
 step() { echo "=== $1 $(date +%T)"; }
 step build; RJT_DATA="$NEXT" uv run python build.py | { grep -vE '^(transit|trains) ' || true; }
