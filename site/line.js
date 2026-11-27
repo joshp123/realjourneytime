@@ -9,7 +9,7 @@ const ROW = 22;           // pixels a stop takes at least
 const SANS = '-apple-system, "Helvetica Neue", "Segoe UI", sans-serif';
 const MODES = {train: 'train', metro: 'metro', tram: 'tram', bus: 'bus'};
 const long = date => new Date(date + 'T12:00:00Z').toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC'});
-const whole = s => { const m = Math.round(s / 60); return m < 1 ? 'under 1 min' : `${m} min`; };
+const whole = s => s < 600 ? `${(Math.round(s / 30) / 2).toString()} min` : `${Math.round(s / 60)} min`;
 
 const FRAME = `
   <div class="line">
@@ -142,7 +142,7 @@ function marey(stops, direction, journeys, mode) {
     const hour = t % 3600 === 0;
     g.strokeStyle = token('--grid'); g.lineWidth = hour ? 1 : 0.5;
     g.beginPath(); g.moveTo(X(t), top - (hour ? 6 : 0)); g.lineTo(X(t), height - bottom); g.stroke();
-    if (hour && t > t0 && t < t1) { g.fillStyle = token('--ink-2'); g.fillText(clock(t), X(t), 12); }
+    if (hour && X(t) > 22 && t < t1) { g.fillStyle = token('--ink-2'); g.fillText(clock(t), X(t), 12); }
   }
   g.strokeStyle = token('--grid'); g.lineWidth = 0.5;
   for (const row of y) { g.beginPath(); g.moveTo(0, row); g.lineTo(width, row); g.stroke(); }
@@ -199,5 +199,5 @@ function slow(direction, stops) {
   const pc = v => `${(100 * v / widest).toFixed(1)}%`;
   $('slow').innerHTML = rows.map(r => `<div class="hop"><div class="name">${esc(r.from)} to ${esc(r.to)}</div>` + (r.usual == null ? '<div class="track"></div><div class="num">not recorded</div>'
     : `<div class="track">${r.worst != null && r.worst > r.usual ? `<span class="worst" style="width:${pc(r.worst)}"></span>` : ''}<span class="usual" style="width:${pc(r.usual)}"></span>${r.timetable != null ? `<span class="tick" style="left:${pc(r.timetable)}"></span>` : ''}</div>
-       <div class="num">${whole(r.usual)}${r.worst != null && Math.round(r.worst / 60) > Math.round(r.usual / 60) ? `<small>${whole(r.worst)} at ${String(r.hour).padStart(2, '0')}:00</small>` : ''}</div>`) + '</div>').join('');
+       <div class="num">${whole(r.usual)}${r.worst != null && Math.round(r.worst / 30) > Math.round(r.usual / 30) ? `<small>${whole(r.worst)} at ${String(r.hour).padStart(2, '0')}:00</small>` : ''}</div>`) + '</div>').join('');
 }

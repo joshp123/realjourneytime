@@ -272,3 +272,14 @@ main > .count a { color: inherit; }
   .list .row span, .list .row small { display: block; white-space: normal; }
   .list .row small { margin-top: 3px; }
 }
+.map[hidden] { display: none; }
+.key.stale { opacity: .35; }
+.list .row span { flex: none; max-width: 70%; }
+.list .row small { min-width: 0; }
+@media (max-width: 700px) {
+  .over .key { display: block; }
+  .over .key div { margin-top: 4px; }
+  .list .row span { max-width: none; }
+  .marey-stops { width: 118px; }
+}
+@media (max-width: 700px) { .bars .r { grid-template-columns: 56px 1fr 62px; } .bars .pc { font-size: 19px; white-space: nowrap; } }

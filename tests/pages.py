@@ -31,7 +31,11 @@ class Visit:
             await self.page.wait_for_load_state("networkidle", timeout=30000)
         except Exception:
             problems.append(f"{self.name} ({self.size}): still loading after 30 s")
-        await self.page.wait_for_timeout(400)
+        try:
+            await self.page.wait_for_function("!document.body.dataset.busy", timeout=30000)
+        except Exception:
+            problems.append(f"{self.name} ({self.size}): still busy after 30 s")
+        await self.page.wait_for_timeout(600)
 
     async def see(self, selector, pattern, patience=15):
         """What a person would read there, waiting as long as a patient one would."""
@@ -230,6 +234,8 @@ async def reach(v):
     await p.locator('#speed button[data-kmh="20"]').click()
     await v.settle()
     await v.see("#reach-title", "Within 45 minutes")
+    await v.see("#reach-key:not(.stale)", r"[\d,]+ people by bike")
+    await p.wait_for_timeout(1500)
     await v.shot()
 
     v.name = "reach-03-map-moved-not-the-start"
@@ -265,6 +271,8 @@ async def reach(v):
     await p.keyboard.press("Enter")
     await v.settle()
     await v.see("#reach-title", "of Zwolle")
+    await v.see("#reach-key:not(.stale)", r"[\d,]+ people by public transport")
+    await p.wait_for_timeout(1500)
     await v.shot()
 
 
@@ -272,7 +280,7 @@ async def bike(v):
     p = v.page
     await v.open("bike-01-front", "?view=bike")
     await v.see("#bike-title", r"The bike beats public transport on \d+% of trips")
-    await v.see("#bars", r"Train [\d.]+% Metro [\d.]+% Tram \d+% Bus \d+%")
+    await v.see("#bars", r"Train [\d.]+% Metro <?[\d.]+% Tram \d+% Bus \d+%")
     await v.see("#wins", r"Biggest wins, one for each line Bike To be sure")
     await v.shot()
 

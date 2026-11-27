@@ -6,7 +6,7 @@ import {$, address, esc, go, minutes, speedControl, thousands} from './ui.js';
 import {timeView} from './view-timing.js';
 
 const MODES = {train: 'Train', metro: 'Metro', tram: 'Tram', bus: 'Bus'};
-const share = (wins, total) => { const p = 100 * wins / total; return p >= 10 ? Math.round(p) : p >= 0.95 ? p.toFixed(0) : p >= 0.05 ? p.toFixed(1) : '0'; };
+const share = (wins, total) => { const p = 100 * wins / total; return p >= 10 ? Math.round(p) : p >= 0.95 ? p.toFixed(0) : p >= 0.05 ? p.toFixed(1) : wins ? '<0.1' : '0'; };
 const town = t => t === "'s-Gravenhage" ? 'Den Haag' : t;
 const short = label => label.replace(/, [^,]+$/, '');
 

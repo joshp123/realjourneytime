@@ -159,7 +159,9 @@ export function describeJourney(r, toLabel) {
   const day = new Date(r.date + 'T12:00:00Z').toLocaleDateString('en-GB', {weekday: 'short', timeZone: 'UTC'});
   const waited = r.cancelled ? `<br>Cancelled. The next to arrive was ${r.got.line}, leaving at ${clock(r.got.ad)}.`
     : r.got.sd !== r.sd || r.got.line !== r.line ? `<br>${r.got.line}, leaving at ${clock(r.got.ad)}, got there first.` : '';
-  return `<b>${minutes(r.real)}</b> · ${day} ${dateLabel(r.date)} · ${r.line}<br>Due to leave at ${clock(r.sd)} and arrive at ${clock(r.sa)}. Arrived at ${clock(r.arrival)}.${waited}`;
+  // Whole minutes between the two clock times shown, so the sum on screen is right.
+  const took = Math.floor(r.arrival / 60) - Math.floor(r.sd / 60);
+  return `<b>${minutes(took)}</b> · ${day} ${dateLabel(r.date)} · ${r.line}<br>Due to leave at ${clock(r.sd)} and arrive at ${clock(r.sa)}. Arrived at ${clock(r.arrival)}.${waited}`;
 }
 
 // The chart as a picture, with its title and numbers, for sharing.

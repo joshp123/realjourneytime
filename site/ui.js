@@ -3,8 +3,8 @@
 export const $ = id => document.getElementById(id);
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 export const pad = n => String(n).padStart(2, '0');
-// A time of day from seconds since midnight; times before midnight and after it wrap.
-export const clock = s => { s = ((Math.round(s / 60) * 60 % 86400) + 86400) % 86400; return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}`; };
+// A time of day from seconds since midnight, as a clock shows it (the minute it is in); times wrap at midnight.
+export const clock = s => { s = ((s % 86400) + 86400) % 86400; return `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}`; };
 export const thousands = v => v.toLocaleString('en-GB');
 export const dateLabel = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC'});
 export const DAYS = {weekdays: 'weekdays', saturday: 'Saturdays', sunday: 'Sundays'};
@@ -34,7 +34,7 @@ export const speedControl = kmh => `<span>Bike</span>${SPEEDS.map(k => `<button 
 // called with the chosen row's value. Typing into a box that shows a choice replaces it: the old text is
 // selected when the tap that focused the box ends (Safari drops a selection made on focus itself).
 export function searchBox(input, list, suggest, pick) {
-  let rows = [], active = -1, untouched = false, tapped = false, turn = 0, shown = '';
+  let rows = [], active = -1, untouched = false, tapped = false, turn = 0, shown = '', closing = 0;
   const close = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); rows = []; active = -1; };
   const paint = head => {
     list.innerHTML = (head ? `<div class="head">${esc(head)}</div>` : '') + rows.map((r, i) =>
@@ -49,11 +49,11 @@ export function searchBox(input, list, suggest, pick) {
     paint(found.head);
   };
   const choose = i => { const row = rows[i]; if (!row || row.off) return; shown = row.label; close(); input.blur(); pick(row.value); };
-  input.addEventListener('focus', () => { untouched = true; tapped = false; shown = input.value; ask(); });
+  input.addEventListener('focus', () => { clearTimeout(closing); untouched = true; tapped = false; shown = input.value; ask(); });
   input.addEventListener('click', () => { if (untouched && !tapped) input.select(); tapped = true; });
   input.addEventListener('input', () => { untouched = false; ask(); });
   // Leaving the box without choosing puts back what it showed.
-  input.addEventListener('blur', () => { input.value = shown; setTimeout(close, 150); });
+  input.addEventListener('blur', () => { input.value = shown; closing = setTimeout(close, 150); });
   input.addEventListener('keydown', event => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();

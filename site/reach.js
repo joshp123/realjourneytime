@@ -32,24 +32,22 @@ const FRAME = `
 
 // The server sends each area as a filled picture. Draw its edge firmly and its inside faintly, so the map
 // under it stays readable where the two areas overlap.
-function outline(src, colour, grow) {
+function outline(src, colour, wanted) {
   return new Promise(done => {
     const image = new Image();
     image.onload = () => {
+      // Enlarge small pictures so their edge is smooth, but never past what a phone redraws at once.
+      const grow = Math.max(1, Math.min(wanted, Math.floor(Math.sqrt(1.5e6 / (image.width * image.height)))));
       const w = image.width * grow, h = image.height * grow, canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       const g = canvas.getContext('2d');
       g.imageSmoothingQuality = 'high'; g.filter = `blur(${grow * 0.6}px)`; g.drawImage(image, 0, 0, w, h); g.filter = 'none';
-      const a = g.getImageData(0, 0, w, h), o = g.createImageData(w, h), inside = i => a.data[i * 4 + 3] > 110, t = Math.max(1, Math.round(grow * 0.5));
+      const a = g.getImageData(0, 0, w, h).data, o = g.createImageData(w, h), t = Math.max(1, Math.round(grow * 0.5));
+      const inside = (x, y) => x >= 0 && y >= 0 && x < w && y < h && a[(y * w + x) * 4 + 3] > 110;
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        if (!inside(i)) continue;
-        let edge = false;
-        for (let dy = -t; dy <= t && !edge; dy++) for (let dx = -t; dx <= t; dx++) {
-          const X = x + dx, Y = y + dy;
-          if (X < 0 || Y < 0 || X >= w || Y >= h || !inside(Y * w + X)) { edge = true; break; }
-        }
-        o.data.set([...colour, edge ? 255 : 34], i * 4);
+        if (!inside(x, y)) continue;
+        const edge = !inside(x - t, y) || !inside(x + t, y) || !inside(x, y - t) || !inside(x, y + t);
+        o.data.set([...colour, edge ? 255 : 34], (y * w + x) * 4);
       }
       g.putImageData(o, 0, 0);
       done(canvas.toDataURL());
@@ -90,6 +88,7 @@ export async function show(root, q) {
   $('speed').onclick = event => { const k = event.target.dataset?.kmh; if (k) go(link({kmh: +k}), true); };
   $('reach-title').textContent = `Within ${state.minutes} minutes of ${short(state.name)}, leaving at ${pad(state.hour)}:00 on a weekday`;
   $('toast').hidden = !undo;
+  $('reach-key').classList.add('stale');
   if (undo) {
     $('toast').innerHTML = `Start moved from ${esc(short(undo.name))}. <button class="btn" type="button" id="undo">Undo</button>`;
     $('undo').onclick = () => { const back = undo; undo = null; diagnose('reach-origin', 'undo'); go(link(back)); };
@@ -111,6 +110,7 @@ export async function show(root, q) {
   }
   if (mine !== turn) return;
   const people = layer => layer.pending ? '' : thousands(layer.people);
+  $('reach-key').classList.remove('stale');
   $('reach-key').innerHTML = `<div class="k-sure"><b>${people(data.transit)}</b> people by public transport</div>` +
     (data.bike.pending ? '' : `<div class="k-bike"><b>${people(data.bike)}</b> people by bike</div>`);
   done('answer');

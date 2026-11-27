@@ -36,7 +36,7 @@ const FRAME = `
     <p>Each line on the chart uses the journeys arriving within half an hour either side. "${SURE}" is the time that was enough for nine of every ten.</p>
     <p>Times when nothing ran for two hours or more, as in a strike, are left out.</p>
     <p>The bike takes the shortest legal route on OpenStreetMap, with ferries that run all year, at the speed you choose. Traffic lights and parking are not counted.</p>
-    <p>After Tom Forth's <a href="https://tomforth.co.uk/realjourneytime/">Real Journey Time</a> for buses in England. The idea and the nine-in-ten measure are his.</p>
+    <p>This follows Tom Forth's <a href="https://tomforth.co.uk/realjourneytime/">Real Journey Time</a> for buses in England. The idea and the nine-in-ten measure are his.</p>
   </details>`;
 
 let map = null, drawn = null, turn = 0;
@@ -52,7 +52,7 @@ export async function show(root, q) {
   if (!$('trip-map')) { root.innerHTML = FRAME; map = null; drawn = null; pickers(); sources(); }
   Object.assign(now, {state, link, from: null});
   const say = (text, button) => { $('chart').innerHTML = `<div class="msg"><span>${text}</span>${button ? `<button class="btn" type="button" id="again">${button}</button>` : ''}</div>`; };
-  const clear = () => { for (const id of ['by', 'key', 'mean', 'count', 'stops']) $(id).innerHTML = id === 'by' || id === 'key' ? '&nbsp;' : ''; $('acts').hidden = true; $('chart').classList.add('short'); };
+  const clear = () => { for (const id of ['by', 'key', 'mean', 'count', 'stops']) $(id).innerHTML = id === 'by' || id === 'key' ? '&nbsp;' : ''; $('acts').hidden = true; $('chart').classList.add('short'); $('trip-map').hidden = true; };
 
   $('from').value = state.from; $('to').value = state.to;
   $('days').innerHTML = Object.keys(DAYS).map(d => `<a href="${link({days: d === 'weekdays' ? null : d, lines: null})}" data-go class="${d === state.days ? 'on' : ''}">${d === 'weekdays' ? 'Weekdays' : d === 'saturday' ? 'Saturday' : 'Sunday'}</a>`).join('');
@@ -145,6 +145,7 @@ async function nothingDirect(from, to, trip, state, say, clear) {
   if (bike != null) $('key').innerHTML = `<span class="at"></span>${figure('k-bike', 'by bike', bike)}`;
   say(`Nothing runs direct from ${esc(short(from.label))} to ${esc(short(to.label))}.` + (near.length ? `<small>Nearest ${near.length > 1 ? 'stops' : 'stop'} with a direct line: ${
     near.map(([d, p]) => `<a href="${address({from: from.label, to: p.label})}" data-go>${esc(short(p.label))}</a>, ${away(d)}`).join(', and ')}.</small>` : ''));
+  $('trip-map').hidden = false;
   tripMap(from, to, null, null, trip.bike);
 }
 
@@ -163,6 +164,7 @@ function answer(from, to, trip, state, link, done) {
     : (kinds.alike ? `<a href="${link({lines: null})}" data-go class="${chosen ? '' : 'on'}">All lines</a>` : '') +
       labels.map(l => `<a href="${link({lines: l})}" data-go class="${chosen?.includes(l) ? 'on' : ''}">${esc(l)}</a>`).join('');
   $('chart').classList.remove('short');
+  $('trip-map').hidden = false;
 
   const numbers = row => {
     const v = row ? {sure: row.p90, average: row.mean, timetable: row.timetable} : model;
@@ -174,7 +176,7 @@ function answer(from, to, trip, state, link, done) {
   done('answer');
 
   const days = `${thousands(model.days)} ${DAYS[state.days]}, ${dateLabel(model.first)} to ${dateLabel(model.last)}`;
-  $('mean').textContent = model.few ? '' : `"${SURE}" is enough time for nine journeys in ten: you are late about once a week.`;
+  $('mean').textContent = model.few ? '' : `"${SURE}" is enough time for nine journeys in ten` + (state.days === 'weekdays' ? ': commute on it and you are late about once a week.' : '.');
   $('count').innerHTML = (model.few ? `<b class="warn">Only ${thousands(model.records.length)} of ${thousands(model.scheduled)} timetabled journeys were tracked.</b> ` : '') +
     `Each dot is one journey. ${model.few ? '' : thousands(model.records.length) + ' journeys and '}${thousands(model.cancelled)} cancellations on ${days}.`;
   $('stops').innerHTML = 'Stop by stop: ' + lines.map(l => `<a href="${address({line: l.key})}" data-go>${esc(l.line)}</a>`).join(', ') + '.';
@@ -217,7 +219,7 @@ async function tripMap(from, to, trip, main, bike) {
     const leg = trip.legs.filter(l => l.route.key === main.key)[0];
     a = [leg.a[2], leg.a[3]]; b = [leg.b[2], leg.b[3]];
     const route = await json(`api/route?key=${encodeURIComponent(main.key)}`).catch(() => null);
-    const line = routeLine(between(route?.shapes || [], a, b)).addTo(map);
+    const line = routeLine(between(route?.shapes || [], a, b, leg)).addTo(map);
     layers.push(line, mapKey(map, MODES[leg.route.mode]));
     bounds = line.getBounds();
   }
@@ -228,7 +230,7 @@ async function tripMap(from, to, trip, main, bike) {
 }
 
 // The part of a line's shape that runs from near one point to near another, in that order.
-function between(shapes, a, b) {
+function between(shapes, a, b, leg) {
   const d = (p, q) => Math.hypot(p[0] - q[0], (p[1] - q[1]) * Math.cos(p[0] * Math.PI / 180));
   let best = null;
   for (const shape of shapes) {
@@ -236,7 +238,11 @@ function between(shapes, a, b) {
     const i = near(a), j = near(b);
     if (i < j && (!best || d(shape[i], a) + d(shape[j], b) < best[0])) best = [d(shape[i], a) + d(shape[j], b), shape.slice(i, j + 1)];
   }
-  return best && best[0] < 0.01 ? [a, ...best[1], b] : [a, b];
+  if (best && best[0] < 0.01) return [a, ...best[1], b];
+  // No drawn shape: join the stops the line calls at between the two.
+  const {route} = leg, i = route.stop_ids.indexOf(leg.from), j = route.stop_ids.indexOf(leg.to);
+  const pattern = route.patterns.find(p => p.includes(i) && p.indexOf(j) > p.indexOf(i));
+  return pattern ? pattern.slice(pattern.indexOf(i), pattern.indexOf(j) + 1).map(s => route.stops[s]).filter(Boolean).map(s => [s[2], s[3]]) : [a, b];
 }
 
 // A link to the old site named a line and two platforms. Show the trip between their places.
