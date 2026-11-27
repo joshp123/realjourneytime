@@ -37,6 +37,33 @@ def services():
                 yield rows
 
 
+def distinct_journeys(journeys):
+    """Collapse renumbered copies when one record covers the other's observed calls."""
+    by_schedule = defaultdict(list)
+    for company, number, times in journeys:
+        schedule = (company, number % 100000, times[0], tuple(times[1::4]), tuple(times[2::4]))
+        copies = by_schedule[schedule]
+        actual = tuple(zip(times[3::4], times[4::4]))
+        copies.append((number, times, actual))
+
+    def covers(actual, other):
+        return all(
+            new == old or (old < 0 <= new) or (old == -2 and new == -1)
+            for new_call, old_call in zip(actual, other)
+            for new, old in zip(new_call, old_call)
+        )
+
+    for copies in by_schedule.values():
+        for i, (number, times, actual) in enumerate(copies):
+            if any(
+                number != other_number and covers(other, actual)
+                and (not covers(actual, other) or j < i)
+                for j, (other_number, _, other) in enumerate(copies)
+            ):
+                continue
+            yield unpack(times)
+
+
 def routes():
     local = stations()
     by_series = defaultdict(lambda: {"patterns": {}, "days": defaultdict(list), "ends": defaultdict(int),
@@ -49,7 +76,8 @@ def routes():
             continue
         if "ipv" in first["Service:Type"] or "i.p.v" in first["Service:Type"]:
             continue  # replacement buses and metros
-        series = int(first["Service:Train number"]) % 100000 // 100 * 100
+        number = int(first["Service:Train number"])
+        series = number % 100000 // 100 * 100
         route = by_series[(first["Service:Type"], series)]
         route["companies"][first["Service:Company"].split("_")[0]] += 1
         stops = tuple("S:" + r["Stop:Station code"].upper() for r in calls)
@@ -66,7 +94,7 @@ def routes():
             ad = -1 if r["Stop:Departure cancelled"] == "true" else (
                 sd + 60 * int(r["Stop:Departure delay"]) if sd is not None and r["Stop:Departure delay"] else None)
             times += [sa, sd, aa, ad]
-        route["days"][date].append(pack(times))
+        route["days"][date].append((first["Service:Company"], number, pack(times)))
 
     for (kind, series), route in by_series.items():
         stop_ids = sorted({s for p in route["patterns"] for s in p})
@@ -88,5 +116,5 @@ def routes():
             "stops": {s: local[s[2:]] for s in stop_ids},
             "stop_ids": stop_ids,
             "patterns": [[index[s] for s in p] for p in route["patterns"]],
-            "days": {d: [unpack(j) for j in js] for d, js in route["days"].items()},
+            "days": {d: list(distinct_journeys(js)) for d, js in route["days"].items()},
         }

@@ -18,6 +18,10 @@ if [ "${HISTORY:-0}" = 1 ]; then
 else
   step history-copy; cp -R "$STORE/site-data/history" "$NEXT/history"
 fi
+if [ "${STAGE_ONLY:-0}" = 1 ]; then
+  step ready
+  exit 0
+fi
 step swap
 rm -rf "$STORE/site-previous"
 mv "$STORE/site-data" "$STORE/site-previous"
