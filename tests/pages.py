@@ -61,7 +61,7 @@ async def journey(v):
     await v.open("journey-01-front", "")
     await v.see("#title", "Amsterdam Centraal to Museumplein on weekdays")
     await v.see("#key", r"Across the day \d+ min to be sure \d+ min average \d+ min timetable \d+ min by bike")
-    await v.see("#by", "All lines Tram 2 Tram 12 Tram 24")
+    await v.see("#by", "All lines (Bus N97 )?Tram 2 Tram 12 Tram 24")
     await v.see("#count", r"Each dot is one journey\. [\d,]+ journeys and [\d,]+ cancellations on 25\d weekdays")
     await v.shot()
 
