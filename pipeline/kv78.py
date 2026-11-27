@@ -1,5 +1,6 @@
 """Bus, tram and metro journeys for the whole country from the reduced KV78 days, one operator at a time."""
 import csv
+import datetime as dt
 import gzip
 import json
 from collections import defaultdict
@@ -67,36 +68,64 @@ def drop_spikes(times):
         times[3 + 4 * k + side] = None
 
 
+def operating_days(paths, wanted):
+    """Read each archive once and include observations reported after midnight."""
+    previous_date = None
+    previous = defaultdict(dict)
+    for path in paths:
+        date = path.name[:10]
+        yesterday = (dt.date.fromisoformat(date) - dt.timedelta(days=1)).isoformat()
+        current = defaultdict(dict)
+        include_previous = previous_date == yesterday
+        if date in wanted or include_previous:
+            with gzip.open(path, "rt") as f:
+                for row in csv.DictReader(f, delimiter="\t"):
+                    order = row["UserStopOrderNumber"]
+                    if row["TransportType"] not in MODE or not order.isdigit():
+                        continue
+                    operation = row["OperationDate"]
+                    if operation == date and date in wanted:
+                        journeys = current
+                    elif include_previous and operation == yesterday:
+                        journeys = previous
+                    else:
+                        continue
+                    key = (row["LinePlanningNumber"], row["JourneyNumber"], row["FortifyOrderNumber"])
+                    calls = journeys[key]
+                    earlier = calls.get(int(order))
+                    if earlier:
+                        if row["LastUpdateTimeStamp"] < earlier["LastUpdateTimeStamp"]:
+                            earlier, row = row, earlier
+                        for field in ("RecordedArrivalTime", "RecordedDepartureTime"):
+                            if seconds(row[field]) is None:
+                                row[field] = earlier[field]
+                    calls[int(order)] = row
+        if previous_date is not None:
+            yield previous_date, previous
+        previous_date, previous = (date if date in wanted else None), current
+    if previous_date is not None:
+        yield previous_date, previous
+
+
 def routes(operator, quays):
     """Yield one route per line of this operator."""
     info = {}
     by_line = defaultdict(lambda: {"patterns": {}, "days": defaultdict(list), "destinations": set()})
     wanted = {d.isoformat() for d in days()}
-    for path in sorted((DATA / "kv78-nl" / operator).glob("*.tsv.gz")):
-        date = path.name[:10]
-        if date not in wanted:
-            continue
-        journeys = defaultdict(dict)  # (line, journey) -> {order: row}
-        with gzip.open(path, "rt") as f:
-            for row in csv.DictReader(f, delimiter="\t"):
-                if row["OperationDate"] != date or row["TransportType"] not in MODE:
-                    continue
-                # The archive has the odd line where two messages ran together ("20Type"): skip it.
-                if not row["UserStopOrderNumber"].isdigit():
-                    continue
-                line = row["LinePlanningNumber"]
-                journeys[(line, row["JourneyNumber"], row["FortifyOrderNumber"])][int(row["UserStopOrderNumber"])] = row
-                info.setdefault(line, row)
+    paths = sorted((DATA / "kv78-nl" / operator).glob("*.tsv.gz"))
+    for date, journeys in operating_days(paths, wanted):
         for (line, *_), calls in journeys.items():
             ordered = [calls[i] for i in sorted(calls)]
             if len(ordered) < 2:
                 continue
+            info.setdefault(line, ordered[0])
             stops = tuple(r["QuayCode"] for r in ordered)
             route = by_line[line]
             pattern = route["patterns"].setdefault(stops, len(route["patterns"]))
             route["destinations"].add(ordered[-1]["DestinationName"])
             # A skipped stop on a journey that ran is a diversion, not a cancellation: leave it unknown.
-            ran = any(r["RecordedArrivalTime"] or r["RecordedDepartureTime"] for r in ordered)
+            ran = any(seconds(r[field]) is not None for r in ordered
+                      for field in ("RecordedArrivalTime", "RecordedDepartureTime"))
             times = [pattern]
             for r in ordered:
                 sa, sd = seconds(r["TargetArrivalTime"]), seconds(r["TargetDepartureTime"])
