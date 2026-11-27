@@ -129,5 +129,5 @@ export async function show(root, q) {
 const now = {};
 async function near(lat, lon) {
   const at = {lat, lon}, best = (await places()).reduce((b, p) => !b || metres(p, at) < metres(b, at) ? p : b, null);
-  return best && metres(best, at) < 150 ? best.label : best && metres(best, at) < 2000 ? `near ${best.label}` : 'this point';
+  return best && metres(best, at) < 150 ? best.label : best && metres(best, at) < 2000 ? `a point near ${best.label}` : 'this point';
 }

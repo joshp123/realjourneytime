@@ -9,8 +9,10 @@ const LONGEST = 7200;   // a stretch that took longer than this is a fault in th
 const median = values => values.sort((a, b) => a - b)[values.length >> 1];
 const middle = values => values.length ? median(values) : null;
 
-// Every journey of one date: [pattern, planned and recorded time at each stop of the pattern in turn]. A time is
-// seconds since midnight; the planned one is the departure, or the arrival at the last stop; -1 is cancelled.
+// Every journey of one date: [pattern, then for each stop of the pattern in turn its planned time and how many
+// seconds after it the vehicle was recorded]. The planned time is the departure, or the arrival at the last
+// stop, in seconds since midnight at the first stop and since the stop before at the others, which keeps a
+// year of a busy line small. null: not known. false: cancelled there. `journeyTimes` gives the times back.
 export function lineDay(route, date) {
   const d = route.days.findIndex(day => day.date === date);
   if (d < 0) return null;
@@ -20,9 +22,12 @@ export function lineDay(route, date) {
     const p = blocks[b + 1], stops = route.patterns[p].length, width = 4 * stops;
     for (let k = 0, at = blocks[b + 2]; k < blocks[b + 3]; k++, at += width) {
       const row = [p];
+      let before = 0;
       for (let i = 0; i < stops; i++) {
         const x = at + 4 * i, sa = time(data[x]), sd = time(data[x + 1]), aa = time(data[x + 2]), ad = time(data[x + 3]);
-        row.push(sd ?? sa, i === stops - 1 ? aa ?? ad : ad ?? aa);
+        const planned = sd ?? sa, recorded = i === stops - 1 ? aa ?? ad : ad ?? aa;
+        row.push(planned == null ? null : planned - before, recorded == null ? null : recorded === -1 ? false : recorded - (planned ?? before));
+        before = planned ?? before;
       }
       journeys.push(row);
     }

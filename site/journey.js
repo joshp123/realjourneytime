@@ -121,7 +121,7 @@ function pickers() {
     for (const p of await search(text, 40)) {
       if (p.id === from.id) continue;
       if (lines.has(p.id)) { rows.push({label: p.label, small: lines.get(p.id), value: {place: p}}); continue; }
-      if (++without > 2) continue;
+      if (++without > 1) continue;
       rows.push({label: p.label, small: 'No direct line', off: true});
       for (const [d, near] of nearest(p, direct, all)) rows.push({label: near.label, small: `${away(d)} · ${lines.get(near.id)}`, value: {place: near}});
     }

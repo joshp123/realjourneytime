@@ -87,8 +87,16 @@ export async function show(root, q) {
     return places.get(p);
   };
   const journeys = day.journeys.filter(j => placing(j[0])).map(j => {
-    const at = placing(j[0]), time = (i, k) => at[i] < 0 ? null : j[1 + 2 * at[i] + k] ?? null;
-    const planned = stops.map((_, i) => time(i, 0)), recorded = stops.map((_, i) => time(i, 1));
+    // Times come as differences (pipeline/lines.mjs): planned since the stop before, recorded since planned.
+    const own = [], ran = [];
+    let before = 0;
+    for (let k = 1; k < j.length; k += 2) {
+      const planned = j[k] == null ? null : before + j[k];
+      own.push(planned); ran.push(j[k + 1] == null ? null : j[k + 1] === false ? -1 : (planned ?? before) + j[k + 1]);
+      before = planned ?? before;
+    }
+    const at = placing(j[0]);
+    const planned = at.map(i => i < 0 ? null : own[i]), recorded = at.map(i => i < 0 ? null : ran[i]);
     return {planned, recorded, cancelled: recorded.some(t => t === -1)};
   }).filter(j => j.planned.some(t => t != null)).sort((a, b) => a.planned.find(t => t != null) - b.planned.find(t => t != null));
   const others = day.journeys.filter(j => j[0] !== direction.pattern && placing(j[0])).length;

@@ -3,7 +3,7 @@ import {diagnose} from './diagnostics.js';
 import {token} from './ui.js';
 
 export function baseMap(id) {
-  const m = L.map(id, {zoomControl: innerWidth > 700, zoomSnap: 0.25});
+  const m = L.map(id, {zoomControl: innerWidth > 700});
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18}).addTo(m);
   for (const name of ['dragstart', 'dragend', 'zoomstart', 'zoomend', 'click']) m.on(name, () => diagnose('map-' + name, id, m.getZoom()));
