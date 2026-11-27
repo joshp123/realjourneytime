@@ -17,8 +17,10 @@ export async function json(url) {
 
 const once = (cache, key, load) => { if (!cache.has(key)) cache.set(key, load().catch(error => { cache.delete(key); throw error; })); return cache.get(key); };
 const files = new Map();
-const file = name => once(files, name, () => json(`data/planner/${name}.json`));
-const tile = (r, c) => once(files, `${r}/${c}`, () => json(`data/planner/${r}/${c}.json`).catch(error => {
+// Keep the grouped place IDs separate from the planner files in older browsers' caches.
+const plannerFile = name => json(`data/planner/${name}.json?v=2`);
+const file = name => once(files, name, () => plannerFile(name));
+const tile = (r, c) => once(files, `${r}/${c}`, () => plannerFile(`${r}/${c}`).catch(error => {
   if (/: 404$/.test(error.message)) return {stops: [], routes: {}};
   throw error;
 }));

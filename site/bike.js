@@ -31,7 +31,7 @@ export async function show(root, q) {
   $('speed').innerHTML = speedControl(kmh);
   $('speed').onclick = event => { const k = event.target.dataset?.kmh; if (k) go(link({kmh: k === '15' ? null : k}), true); };
   let table;
-  try { table = await json(`data/bike-comparison/${kmh}/${mode}.json`); } catch (error) {
+  try { table = await json(`data/bike-comparison/${kmh}/${mode}.json?v=2`); } catch (error) {
     if (mine !== turn) return;
     $('bars').innerHTML = '<div class="msg"><span>The bike table did not load.</span><button class="btn" type="button" id="again">Try again</button></div>';
     $('again').onclick = () => show(root, q);
